@@ -24,3 +24,8 @@ funnel status:
 https://ssh-connector.tail675f12.ts.net (Funnel on)
 |-- / proxy http://127.0.0.1:8765
 ```
+
+## Last incoming requests (UTC, no secrets)
+```
+{"ts": "23:49:22", "method": "POST", "path": "/mcp", "headers": ["accept", "accept-encoding", "content-length", "host", "tailscale-headers-info", "tailscale-user-login", "tailscale-user-name", "tailscale-user-profile-pic", "user-agent", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"], "cred_header": null, "cred_len": 0, "expected_len": 86, "result": "DENIED: no credential header"}
+```
