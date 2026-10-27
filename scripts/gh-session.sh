@@ -84,6 +84,15 @@ if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; the
   sleep 5
   # Името на устройството в Tailscale (напр. ssh-connector.tail1234.ts.net), без крайната точка
   TS_NAME=$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' || true)
+  # Изрично издаваме HTTPS сертификата (Let's Encrypt), за да не чакаме първата заявка; резултатът отива в диагностиката
+  if [ -n "$TS_NAME" ]; then
+    if timeout 120 sudo tailscale cert --cert-file /tmp/ts.crt --key-file /tmp/ts.key "$TS_NAME" >/tmp/ts-cert.log 2>&1; then
+      echo "cert: OK" >> /tmp/ts-diag.log
+    else
+      { echo "cert: FAILED"; tail -3 /tmp/ts-cert.log; } >> /tmp/ts-diag.log
+    fi
+    sudo rm -f /tmp/ts.key /tmp/ts.crt   # ключа не го пазим на диска
+  fi
   # Пускаме Funnel във фонов режим: публичен 443 -> локалния сървър на порт 8765
   if [ -n "$TS_NAME" ] && timeout 60 sudo tailscale funnel --bg http://127.0.0.1:8765 >/tmp/tunnel.log 2>&1; then
     URL="https://$TS_NAME"; TUNNEL=funnel
@@ -114,6 +123,12 @@ for i in $(seq 1 40); do
   sleep 3
 done
 
+# Диагностика на Tailscale (без тайни): версия, сертификат, Funnel
+if [ "$TUNNEL" = funnel ]; then
+  { echo "tailscale: $(tailscale version | head -1)"; echo "funnel status:"; sudo tailscale funnel status 2>&1 | head -8; } >> /tmp/ts-diag.log
+fi
+DIAG=$(cat /tmp/ts-diag.log 2>/dev/null || true)
+
 START=$(date -u +%FT%TZ)
 END_TS=$(( $(date +%s) + $(awk "BEGIN{print int($HOURS*3600)}") ))
 END=$(date -u -d "@$END_TS" +%FT%TZ)
@@ -129,7 +144,12 @@ started: $START
 ends: $END
 run: ${GITHUB_SERVER_URL:-}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}
 
-Stop: put 'stop' in control/session. Restart: put 'start' plus anything new on line 2."
+Stop: put 'stop' in control/session. Restart: put 'start' plus anything new on line 2.
+
+## Tailscale diagnostics
+\`\`\`
+$DIAG
+\`\`\`"
 publish "$STATUS_BASE" running
 
 echo "Running until $END  ($URL)"
