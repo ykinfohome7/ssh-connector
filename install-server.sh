@@ -180,9 +180,13 @@ for i in $(seq 1 30); do
 done
 echo "Local server answers without token: HTTP $code (401 = running and protected)"
 if [ "${NO_TUNNEL:-0}" != 1 ]; then
-  for i in $(seq 1 30); do
+  echo "Waiting for the public HTTPS address (up to 3 min)..."
+  for i in $(seq 1 90); do
     journalctl -u ssh-connector-tunnel --no-pager -o cat | grep -q 'trycloudflare.com' && break
     sleep 2
   done
 fi
 /usr/local/bin/ssh-connector-info
+if ! journalctl -u ssh-connector-tunnel --no-pager -o cat 2>/dev/null | grep -q 'trycloudflare.com'; then
+  echo "The public address is not ready yet. Run again in a minute:  sudo ssh-connector-info"
+fi
