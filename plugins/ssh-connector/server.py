@@ -29,6 +29,7 @@ import yaml
 from mcp.server.fastmcp import FastMCP
 
 CONFIG_PATH = os.environ.get("SSH_CONNECTOR_CONFIG", str(Path(__file__).with_name("servers.yaml")))
+APP_VERSION = (Path(__file__).resolve().parents[2] / "VERSION").read_text().strip() if (Path(__file__).resolve().parents[2] / "VERSION").exists() else "dev"
 mcp = FastMCP("ssh-connector")
 try:  # allow access through a tunnel / reverse proxy (Host header is the public domain); auth is enforced below
     from mcp.server.transport_security import TransportSecuritySettings
@@ -170,6 +171,15 @@ def _err(e, **extra):
 
 
 # ---------------- servers & commands ----------------
+@mcp.tool()
+async def version_info() -> str:
+    """Return SSH connector backend version and public capability information."""
+    return json.dumps({"name": "ssh-connector", "version": APP_VERSION,
+                       "capabilities": ["servers", "ssh", "sftp", "tunnels", "jobs",
+                                        "events", "server_add", "server_update",
+                                        "server_remove", "server_test"]})
+
+
 @mcp.tool()
 async def list_servers(tag: str = "") -> str:
     """List configured servers (optionally only one tag/group), addresses, tags and connection state."""
