@@ -4,6 +4,9 @@ on:
     branches: [main]
     paths-ignore: ["test-results.txt"]
   workflow_dispatch:
+concurrency:
+  group: ssh-connector-connection-test
+  cancel-in-progress: true
 permissions:
   contents: write
 jobs:
