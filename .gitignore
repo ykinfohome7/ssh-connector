@@ -1,6 +1,5 @@
 servers.yaml
-*.pem
-*.key
-.env
-__pycache__/
 .venv/
+__pycache__/
+*.pyc
+.env

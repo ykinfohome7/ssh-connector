@@ -1,14 +1,21 @@
-# Copy to servers.yaml and fill in. servers.yaml is git-ignored - never commit it.
+# Copy to servers.yaml and edit. Path can be overridden with SSH_CONNECTOR_CONFIG.
+defaults:
+  user: root
+  port: 22
+  key: ~/.ssh/id_ed25519
+  max_sessions: 10        # sshd MaxSessions default is 10
+  connect_timeout: 8      # seconds per connection attempt
+  command_timeout: 120    # default timeout for run_command
+  keepalive_interval: 30
+  keepalive_count_max: 3
+  retries: 3              # attempts per host before failing over
+  known_hosts: ~/.ssh/known_hosts   # set to null to disable host key checking (not recommended)
+
 servers:
-  debian1:
-    host: 192.0.2.10
-    port: 22
-    user: admin
-    key: ~/.ssh/id_ed25519
+  web1:
     os: debian
-  redhat1:
-    host: 192.0.2.20
-    user: root
-    password_env: REDHAT1_PASSWORD   # password read from environment variable
+    hosts: [203.0.113.10, 198.51.100.10]   # first is primary, the rest are fallbacks
+  db1:
     os: redhat
-    auto_add_host_key: false
+    user: admin
+    hosts: [db1.example.com, 203.0.113.20]
