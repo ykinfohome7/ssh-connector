@@ -15,6 +15,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Test SSH profile management without network
+        run: python tests/test_profiles.py
       - run: python tests/test_connect.py > test-results.txt 2>&1 || true
       - run: |
           git config user.name github-actions
