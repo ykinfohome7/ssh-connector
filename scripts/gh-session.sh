@@ -59,7 +59,7 @@ if [ -n "${SSH_CONNECTOR_KEY:-}" ]; then
 fi
 
 start_server() {
-  SSH_CONNECTOR_CONFIG="$CFG" nohup /tmp/venv/bin/python plugins/ssh-connector/server.py \
+  SSH_CONNECTOR_CONFIG="$CFG" SSH_CONNECTOR_AUTH_LOG=/tmp/auth.log nohup /tmp/venv/bin/python plugins/ssh-connector/server.py \
     --http --host 127.0.0.1 --port 8765 >> /tmp/server.log 2>&1 &
   echo $! > /tmp/server.pid
 }
@@ -86,7 +86,7 @@ done
 START=$(date -u +%FT%TZ)
 END_TS=$(( $(date +%s) + $(awk "BEGIN{print int($HOURS*3600)}") ))
 END=$(date -u -d "@$END_TS" +%FT%TZ)
-publish "# Connector session
+STATUS_BASE="# Connector session
 state: running
 url: $URL
 claude_url: $URL/mcp   (header: Authorization = Bearer <SSH_CONNECTOR_TOKEN>)
@@ -97,11 +97,26 @@ started: $START
 ends: $END
 run: ${GITHUB_SERVER_URL:-}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}
 
-Stop: put 'stop' in control/session. Restart: put 'start' plus anything new on line 2." running
+Stop: put 'stop' in control/session. Restart: put 'start' plus anything new on line 2."
+publish "$STATUS_BASE" running
 
 echo "Running until $END  ($URL)"
+last_lines=0; last_pub=0
 while [ "$(date +%s)" -lt "$END_TS" ]; do
   sleep 30
+  # Publish the latest incoming requests (header names / lengths / result only, never secrets), max once a minute.
+  if [ -s /tmp/auth.log ]; then
+    lines=$(wc -l < /tmp/auth.log)
+    if [ "$lines" != "$last_lines" ] && [ $(( $(date +%s) - last_pub )) -ge 60 ]; then
+      publish "$STATUS_BASE
+
+## Last incoming requests (UTC, no secrets)
+\`\`\`
+$(tail -15 /tmp/auth.log)
+\`\`\`" requests
+      last_lines=$lines; last_pub=$(date +%s)
+    fi
+  fi
   if ! kill -0 "$(cat /tmp/server.pid)" 2>/dev/null; then
     echo "Server died, restarting"; tail -20 /tmp/server.log; start_server
   fi

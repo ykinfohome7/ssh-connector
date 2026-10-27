@@ -515,25 +515,70 @@ async def get_events(since: float = 0, server: str = "", limit: int = 100) -> st
 
 
 # ---------------- HTTP mode (ChatGPT, remote Codex) ----------------
+def _credential(headers):
+    """Accept 'Authorization: Bearer <t>', 'Authorization: <t>', 'x-api-key: <t>' or 'api-key: <t>'."""
+    for name in (b"authorization", b"x-api-key", b"api-key"):
+        v = headers.get(name)
+        if v:
+            v = v.decode(errors="replace").strip()
+            if v.lower().startswith("bearer "):
+                v = v[7:].strip()
+            return name.decode(), v
+    return None, ""
+
+
 def http_app(token):
-    """Streamable HTTP app guarded by a token: either 'Authorization: Bearer <token>'
-    or a secret URL prefix https://host/<token>/mcp (for clients without header auth, e.g. ChatGPT)."""
+    """Streamable HTTP app guarded by a token: a header (see _credential)
+    or a secret URL prefix https://host/<token>/mcp (for clients without header auth, e.g. ChatGPT).
+    GET /health answers 'ok' without a token. If SSH_CONNECTOR_AUTH_LOG is set, every request is logged there
+    as one JSON line (header names, lengths and the result only, never header values or the token)."""
+    import hmac
+
     app = mcp.streamable_http_app()
     prefix = f"/{token}"
+    log_path = os.environ.get("SSH_CONNECTOR_AUTH_LOG")
+
+    def log(entry):
+        if log_path:
+            try:
+                with open(log_path, "a") as f:
+                    f.write(json.dumps(entry) + "\n")
+            except OSError:
+                pass
+
+    async def deny(send, status=401, body=b"unauthorized"):
+        await send({"type": "http.response.start", "status": status,
+                    "headers": [(b"content-type", b"text/plain"),
+                                (b"www-authenticate", b'Bearer realm="ssh-connector"')]})
+        await send({"type": "http.response.body", "body": body})
 
     async def guarded(scope, receive, send):
         if scope["type"] == "http":
             path = scope.get("path", "")
+            method = scope.get("method", "")
             headers = dict(scope.get("headers") or [])
-            auth = headers.get(b"authorization", b"").decode()
+            if path == "/health":
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": [(b"content-type", b"text/plain")]})
+                await send({"type": "http.response.body", "body": b"ok"})
+                return
+            name, value = _credential(headers)
+            entry = {"ts": time.strftime("%H:%M:%S"), "method": method, "path": path.replace(token, "<token>"),
+                     "headers": sorted(h.decode(errors="replace") for h in headers
+                                       if h not in (b"cookie",)),
+                     "cred_header": name, "cred_len": len(value), "expected_len": len(token)}
             if path.startswith(prefix + "/"):
                 new = path[len(prefix):]
                 scope = dict(scope, path=new, raw_path=new.encode())
-            elif auth != f"Bearer {token}":
-                await send({"type": "http.response.start", "status": 401,
-                            "headers": [(b"content-type", b"text/plain")]})
-                await send({"type": "http.response.body", "body": b"unauthorized"})
+                entry["result"] = "ok (secret path)"
+            elif value and hmac.compare_digest(value.encode(), token.encode()):
+                entry["result"] = "ok (header)"
+            else:
+                entry["result"] = "DENIED: " + ("no credential header" if not name else "wrong token")
+                log(entry)
+                await deny(send)
                 return
+            log(entry)
         await app(scope, receive, send)
 
     return guarded
