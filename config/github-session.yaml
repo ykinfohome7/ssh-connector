@@ -1,0 +1,43 @@
+# GitHub Actions SSH connector session.
+# These public connection parameters contain NO passwords, keys, or tokens.
+# To access BGDB, set repository secrets:
+#   TAILSCALE_AUTHKEY  (tagged, reusable, ephemeral Tailscale auth key)
+#   BGDB_SSH_PASSWORD  (password for BGDB's bgadmin account)
+#   SSH_CONNECTOR_KNOWN_HOSTS (verified SSH host keys, as a known_hosts file)
+# If SSH_CONNECTOR_SERVERS is set, it overrides this entire configuration.
+defaults:
+  port: 22
+  known_hosts: ~/.ssh/known_hosts
+  connect_timeout: 8
+  retries: 1
+  command_timeout: 300
+  keepalive_interval: 30
+  keepalive_count_max: 3
+
+servers:
+  rebex:
+    user: demo
+    password: password
+    hosts: [test.rebex.net]
+    known_hosts: null  # Demo fixture only; never use this for BGDB
+    tags: [demo]
+  failover:
+    user: demo
+    password: password
+    hosts: [10.255.255.1, test.rebex.net]
+    known_hosts: null  # Demo fixture only
+    tags: [demo]
+  BGDB-Codespaces:
+    os: debian
+    user: bgadmin
+    hosts: [100.65.111.82]
+    port: 2222
+    password_env: BGDB_SSH_PASSWORD
+    known_hosts: ~/.ssh/known_hosts
+    tags: [github, debian, codespaces, tailscale]
+
+snippets:
+  list: ls
+  bgdb_info: 'id && hostname && cat /etc/os-release'
+  bgdb_ssh: 'sudo -n /usr/sbin/sshd -T | grep -E "^(port|passwordauthentication|permitrootlogin) "'
+  bgdb_claude: 'command -v claude || test -x /home/vscode/.local/bin/claude && echo claude-installed'
