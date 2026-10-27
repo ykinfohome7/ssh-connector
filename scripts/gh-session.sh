@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs ssh-connector + a public HTTPS tunnel inside a GitHub Actions job, for testing and development.
+# Runs ssh-connector + a public HTTPS address (Tailscale Funnel, fallback trycloudflare) inside a GitHub Actions job, for testing and development.
 # Controlled by control/session (first word: start | stop). Publishes the URL (never the token) to control/status.md.
 # Secrets (repo Settings > Secrets and variables > Actions):
 #   SSH_CONNECTOR_TOKEN    required - the access token (same idea as on a server)
@@ -71,19 +71,44 @@ start_server() {
 }
 start_server
 
-curl -fsSL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-chmod +x /tmp/cloudflared
-nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8765 > /tmp/tunnel.log 2>&1 &
-
+# --- Публичен HTTPS адрес / Public HTTPS address ---
+# 1) Tailscale Funnel: ПОСТОЯНЕН адрес https://ssh-connector.<tailnet>.ts.net (не се сменя при рестарт)
+# 2) Резерва: временен trycloudflare тунел (адресът се сменя при всеки рестарт)
+TUNNEL=""
 URL=""
-for i in $(seq 1 60); do
-  URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/tunnel.log | head -1 || true)
-  [ -n "$URL" ] && break
-  sleep 2
-done
-[ -n "$URL" ] || { echo "::error::Tunnel did not start"; cat /tmp/tunnel.log; exit 1; }
+if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
+  # Постоянно име на устройството -> постоянен адрес https://ssh-connector.<tailnet>.ts.net
+  sudo tailscale set --hostname=ssh-connector || true
+  # При край или спиране махаме устройството от мрежата, за да остане името свободно (без ssh-connector-1, -2 ...)
+  trap 'sudo tailscale funnel reset >/dev/null 2>&1 || true; sudo tailscale logout >/dev/null 2>&1 || true' EXIT INT TERM
+  sleep 5
+  # Името на устройството в Tailscale (напр. ssh-connector.tail1234.ts.net), без крайната точка
+  TS_NAME=$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' || true)
+  # Пускаме Funnel във фонов режим: публичен 443 -> локалния сървър на порт 8765
+  if [ -n "$TS_NAME" ] && timeout 60 sudo tailscale funnel --bg http://127.0.0.1:8765 >/tmp/tunnel.log 2>&1; then
+    URL="https://$TS_NAME"; TUNNEL=funnel
+  else
+    echo "::warning::Tailscale Funnel failed, falling back to trycloudflare"; cat /tmp/tunnel.log || true
+  fi
+fi
 
-for i in $(seq 1 30); do
+if [ -z "$URL" ]; then
+  # Резервен вариант: временен тунел на Cloudflare
+  curl -fsSL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+  chmod +x /tmp/cloudflared
+  nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8765 > /tmp/tunnel.log 2>&1 &
+  for i in $(seq 1 60); do
+    URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/tunnel.log | head -1 || true)
+    [ -n "$URL" ] && break
+    sleep 2
+  done
+  [ -n "$URL" ] || { echo "::error::Tunnel did not start"; cat /tmp/tunnel.log; exit 1; }
+  TUNNEL=cloudflare
+fi
+
+# Проверка: без токен адресът трябва да връща 401 (защитен). Първият сертификат на Funnel може да отнеме до минута.
+code=000
+for i in $(seq 1 40); do
   code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/mcp" || true)
   [ "$code" = 401 ] && break
   sleep 3
@@ -94,6 +119,7 @@ END_TS=$(( $(date +%s) + $(awk "BEGIN{print int($HOURS*3600)}") ))
 END=$(date -u -d "@$END_TS" +%FT%TZ)
 STATUS_BASE="# Connector session
 state: running
+tunnel: $TUNNEL   (funnel = permanent URL / постоянен адрес)
 url: $URL
 claude_url: $URL/mcp   (header: Authorization = Bearer <SSH_CONNECTOR_TOKEN>)
 chatgpt_url: $URL/<SSH_CONNECTOR_TOKEN>/mcp
@@ -126,8 +152,12 @@ $(tail -15 /tmp/auth.log)
   if ! kill -0 "$(cat /tmp/server.pid)" 2>/dev/null; then
     echo "Server died, restarting"; tail -20 /tmp/server.log; start_server
   fi
-  if ! pgrep -f "cloudflared tunnel" >/dev/null; then
+  # Проверка дали тунелът още работи
+  if [ "$TUNNEL" = cloudflare ] && ! pgrep -f "cloudflared tunnel" >/dev/null; then
     echo "::error::Tunnel stopped"; break
+  fi
+  if [ "$TUNNEL" = funnel ] && ! sudo tailscale funnel status 2>/dev/null | grep -q 8765; then
+    echo "Funnel lost, re-enabling"; timeout 60 sudo tailscale funnel --bg http://127.0.0.1:8765 || true
   fi
 done
 
