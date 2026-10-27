@@ -1,7 +1,7 @@
 Host canonicalization disabled
 Opening SSH connection to test.rebex.net, port 22
 [conn=0] Connected to SSH server at test.rebex.net, port 22
-[conn=0]   Local address: 10.1.0.106, port 52476
+[conn=0]   Local address: 10.1.1.118, port 52096
 [conn=0]   Peer address: 194.108.117.16, port 22
 [conn=0] Beginning auth for user demo
 [conn=0] Auth for user demo succeeded
@@ -15,7 +15,7 @@ Opening SSH connection to 10.255.255.1, port 22
 Host canonicalization disabled
 Opening SSH connection to test.rebex.net, port 22
 [conn=1] Connected to SSH server at test.rebex.net, port 22
-[conn=1]   Local address: 10.1.0.106, port 52484
+[conn=1]   Local address: 10.1.1.118, port 48488
 [conn=1]   Peer address: 194.108.117.16, port 22
 [conn=1] Beginning auth for user demo
 [conn=1] Auth for user demo succeeded
@@ -26,14 +26,14 @@ Opening SSH connection to test.rebex.net, port 22
 [conn=1, chan=0] Channel closed
 [conn=0, chan=1] Requesting new SSH session
 [conn=1, chan=1] Requesting new SSH session
-[conn=0, chan=1]   Command: pwd
 [conn=1, chan=1]   Command: pwd
-[conn=0, chan=1] Received exit status 0
-[conn=0, chan=1] Received channel close
-[conn=0, chan=1] Channel closed
+[conn=0, chan=1]   Command: pwd
 [conn=1, chan=1] Received exit status 0
 [conn=1, chan=1] Received channel close
 [conn=1, chan=1] Channel closed
+[conn=0, chan=1] Received exit status 0
+[conn=0, chan=1] Received channel close
+[conn=0, chan=1] Channel closed
 [conn=0, chan=2] Requesting new SSH session
 [conn=0, chan=2]   Command: ls
 [conn=0, chan=2] Received exit status 0
@@ -63,6 +63,63 @@ Opening SSH connection to test.rebex.net, port 22
 [conn=0, chan=6] Requesting new SSH session
 [conn=0, chan=6]   Interactive shell requested
 [conn=0, chan=6] Closing channel
+[conn=0, chan=6] Received exit status 0
+[conn=0, chan=6] Received channel close
+[conn=0, chan=6] Channel closed
+INFO:     Started server process [2617]
+INFO:     Waiting for application startup.
+StreamableHTTP session manager started
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8799 (Press CTRL+C to quit)
+INFO:     127.0.0.1:48942 - "POST /mcp HTTP/1.1" 401 Unauthorized
+HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 401 Unauthorized"
+INFO:     127.0.0.1:48942 - "POST /mcp HTTP/1.1" 401 Unauthorized
+HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 401 Unauthorized"
+Created new transport with session ID: ccfab2dc58b64dffb68c45dce5429200
+INFO:     127.0.0.1:48948 - "POST /mcp HTTP/1.1" 200 OK
+HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 200 OK"
+Received session ID: ccfab2dc58b64dffb68c45dce5429200
+Negotiated protocol version: 2025-11-25
+INFO:     127.0.0.1:48958 - "POST /mcp HTTP/1.1" 202 Accepted
+HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 202 Accepted"
+INFO:     127.0.0.1:48968 - "GET /mcp HTTP/1.1" 200 OK
+HTTP Request: GET http://127.0.0.1:8799/mcp "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:48980 - "POST /mcp HTTP/1.1" 200 OK
+HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 200 OK"
+Processing request of type ListToolsRequest
+INFO:     127.0.0.1:48984 - "POST /mcp HTTP/1.1" 200 OK
+HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 200 OK"
+Processing request of type CallToolRequest
+Host canonicalization disabled
+Opening SSH connection to test.rebex.net, port 22
+[conn=0] Connected to SSH server at test.rebex.net, port 22
+[conn=0]   Local address: 10.1.1.118, port 50008
+[conn=0]   Peer address: 194.108.117.16, port 22
+[conn=0] Beginning auth for user demo
+[conn=0] Auth for user demo succeeded
+[conn=0, chan=0] Requesting new SSH session
+[conn=0, chan=0]   Command: ls
+[conn=0, chan=0] Received exit status 0
+[conn=0, chan=0] Received channel close
+[conn=0, chan=0] Channel closed
+Terminating session: ccfab2dc58b64dffb68c45dce5429200
+INFO:     127.0.0.1:52932 - "DELETE /mcp HTTP/1.1" 200 OK
+HTTP Request: DELETE http://127.0.0.1:8799/mcp "HTTP/1.1 200 OK"
+Created new transport with session ID: 5843688c2cd8407a812b475b45a54b0a
+INFO:     127.0.0.1:52946 - "POST /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
+HTTP Request: POST http://127.0.0.1:8799/TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp "HTTP/1.1 200 OK"
+Received session ID: 5843688c2cd8407a812b475b45a54b0a
+Negotiated protocol version: 2025-11-25
+INFO:     127.0.0.1:52962 - "POST /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 202 Accepted
+HTTP Request: POST http://127.0.0.1:8799/TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp "HTTP/1.1 202 Accepted"
+INFO:     127.0.0.1:52970 - "GET /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
+HTTP Request: GET http://127.0.0.1:8799/TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:52982 - "POST /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
+HTTP Request: POST http://127.0.0.1:8799/TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp "HTTP/1.1 200 OK"
+Processing request of type ListToolsRequest
+Terminating session: 5843688c2cd8407a812b475b45a54b0a
+INFO:     127.0.0.1:52994 - "DELETE /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
+HTTP Request: DELETE http://127.0.0.1:8799/TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp "HTTP/1.1 200 OK"
 [
   {
     "test": "run_command rebex",
@@ -77,7 +134,7 @@ Opening SSH connection to test.rebex.net, port 22
   },
   {
     "test": "failover",
-    "seconds": 7.0,
+    "seconds": 6.8,
     "result": {
       "server": "failover",
       "host": "test.rebex.net",
@@ -119,7 +176,7 @@ Opening SSH connection to test.rebex.net, port 22
   },
   {
     "test": "sftp_list /",
-    "seconds": 1.2,
+    "seconds": 1.3,
     "result": [
       {
         "name": "pub",
@@ -162,7 +219,7 @@ Opening SSH connection to test.rebex.net, port 22
     "test": "shell_open",
     "seconds": 1.1,
     "result": {
-      "shell_id": "be03127a",
+      "shell_id": "9749ff4c",
       "output": "For a list of supported commands, type 'help'.\r\ndemo@test:/$ "
     }
   },
@@ -170,7 +227,7 @@ Opening SSH connection to test.rebex.net, port 22
     "test": "shell_send pwd",
     "seconds": 0.8,
     "result": {
-      "shell_id": "be03127a",
+      "shell_id": "9749ff4c",
       "output": "pwd\r\n/\r\ndemo@test:/$ ",
       "closed": false
     }
@@ -187,37 +244,37 @@ Opening SSH connection to test.rebex.net, port 22
     "seconds": 0.0,
     "result": [
       {
-        "ts": 1793118351.1008472,
+        "ts": 1793118719.4706268,
         "server": "rebex",
         "command": "ls",
         "exit_code": 0
       },
       {
-        "ts": 1793118358.083772,
+        "ts": 1793118726.2701514,
         "server": "failover",
         "command": "ls",
         "exit_code": 0
       },
       {
-        "ts": 1793118358.3921258,
-        "server": "rebex",
-        "command": "pwd",
-        "exit_code": 0
-      },
-      {
-        "ts": 1793118358.402092,
+        "ts": 1793118726.5891314,
         "server": "failover",
         "command": "pwd",
         "exit_code": 0
       },
       {
-        "ts": 1793118358.7109883,
+        "ts": 1793118726.5892687,
+        "server": "rebex",
+        "command": "pwd",
+        "exit_code": 0
+      },
+      {
+        "ts": 1793118726.909103,
         "server": "rebex",
         "command": "ls",
         "exit_code": 0
       },
       {
-        "ts": 1793118363.6095114,
+        "ts": 1793118731.9315896,
         "server": "rebex",
         "command": "[shell] pwd",
         "exit_code": null
@@ -258,5 +315,23 @@ Opening SSH connection to test.rebex.net, port 22
         "last_error": null
       }
     ]
+  },
+  {
+    "test": "http mode",
+    "seconds": 7.0,
+    "result": {
+      "no_token_status": 401,
+      "wrong_token_status": 401,
+      "bearer_tools": 25,
+      "bearer_call": {
+        "server": "rebex",
+        "host": "test.rebex.net",
+        "exit_code": 0,
+        "stdout": "pub\nreadme.txt\n",
+        "stderr": ""
+      },
+      "secret_path_tools": 25
+    }
   }
 ]
+INFO:     Shutting down
