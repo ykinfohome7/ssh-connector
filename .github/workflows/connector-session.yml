@@ -25,10 +25,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Check whether Tailscale credentials are configured
+        id: ts
+        env:
+          TS_KEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+        shell: bash
+        run: |
+          if [ -n "$TS_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::TAILSCALE_AUTHKEY secret missing; BGDB private SSH will not be reachable from the runner."
+          fi
+      - name: Join private tailnet for BGDB
+        if: steps.ts.outputs.configured == 'true'
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+      - name: Check private route to BGDB
+        if: steps.ts.outputs.configured == 'true'
+        run: |
+          tailscale status
+          tailscale ping --timeout=4s 100.65.111.82 || echo "::warning::BGDB not reachable on Tailscale (may be asleep or access rules may deny it)."
       - name: Run connector session
         env:
           HOURS: ${{ github.event.inputs.hours || '5' }}
           SSH_CONNECTOR_TOKEN: ${{ secrets.SSH_CONNECTOR_TOKEN }}
           SSH_CONNECTOR_SERVERS: ${{ secrets.SSH_CONNECTOR_SERVERS }}
           SSH_CONNECTOR_KEY: ${{ secrets.SSH_CONNECTOR_KEY }}
+          SSH_CONNECTOR_KNOWN_HOSTS: ${{ secrets.SSH_CONNECTOR_KNOWN_HOSTS }}
+          BGDB_SSH_PASSWORD: ${{ secrets.BGDB_SSH_PASSWORD }}
         run: bash scripts/gh-session.sh
