@@ -51,12 +51,18 @@ CFG=/tmp/servers.yaml
 if [ -n "${SSH_CONNECTOR_SERVERS:-}" ]; then
   printf '%s\n' "$SSH_CONNECTOR_SERVERS" > "$CFG"; SRC="secret SSH_CONNECTOR_SERVERS"
 else
-  cp tests/servers.test.yaml "$CFG"; SRC="public test server (tests/servers.test.yaml)"
+  cp config/github-session.yaml "$CFG"; SRC="GitHub session profile (BGDB + demo)"
 fi
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 if [ -n "${SSH_CONNECTOR_KEY:-}" ]; then
   printf '%s\n' "$SSH_CONNECTOR_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
 fi
+# SSH host keys must be independently verified before the runner trusts BGDB.
+if [ -n "${SSH_CONNECTOR_KNOWN_HOSTS:-}" ]; then
+  printf '%s\n' "$SSH_CONNECTOR_KNOWN_HOSTS" > ~/.ssh/known_hosts
+  chmod 600 ~/.ssh/known_hosts
+fi
+
 
 start_server() {
   SSH_CONNECTOR_CONFIG="$CFG" SSH_CONNECTOR_AUTH_LOG=/tmp/auth.log nohup /tmp/venv/bin/python plugins/ssh-connector/server.py \
