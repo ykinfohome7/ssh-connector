@@ -1,0 +1,15 @@
+defaults:
+  port: 22
+  known_hosts: null
+  connect_timeout: 4
+  retries: 1
+  command_timeout: 20
+servers:
+  rebex:
+    user: demo
+    password: password
+    hosts: [test.rebex.net]
+  failover:
+    user: demo
+    password: password
+    hosts: [10.255.255.1, test.rebex.net]
