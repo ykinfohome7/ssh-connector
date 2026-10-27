@@ -42,6 +42,7 @@ jobs:
         uses: tailscale/github-action@v4
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          statedir: /tmp/tailscale-state/
       - name: Check private route to BGDB
         if: steps.ts.outputs.configured == 'true'
         run: |
