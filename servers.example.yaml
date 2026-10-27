@@ -1,0 +1,14 @@
+# Copy to servers.yaml and fill in. servers.yaml is git-ignored - never commit it.
+servers:
+  debian1:
+    host: 192.0.2.10
+    port: 22
+    user: admin
+    key: ~/.ssh/id_ed25519
+    os: debian
+  redhat1:
+    host: 192.0.2.20
+    user: root
+    password_env: REDHAT1_PASSWORD   # password read from environment variable
+    os: redhat
+    auto_add_host_key: false
