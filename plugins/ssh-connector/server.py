@@ -81,7 +81,7 @@ class Server:
         kwargs = dict(
             port=int(c.get("port", 22)),
             username=c.get("user"),
-            password=c.get("password"),
+            password=os.getenv(c["password_env"]) if c.get("password_env") else c.get("password"),
             known_hosts=kh,
             connect_timeout=ct,
             login_timeout=ct * 2,
