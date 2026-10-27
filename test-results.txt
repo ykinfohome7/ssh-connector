@@ -1,7 +1,7 @@
 Host canonicalization disabled
 Opening SSH connection to test.rebex.net, port 22
 [conn=0] Connected to SSH server at test.rebex.net, port 22
-[conn=0]   Local address: 10.1.1.96, port 47104
+[conn=0]   Local address: 10.1.0.106, port 52476
 [conn=0]   Peer address: 194.108.117.16, port 22
 [conn=0] Beginning auth for user demo
 [conn=0] Auth for user demo succeeded
@@ -15,7 +15,7 @@ Opening SSH connection to 10.255.255.1, port 22
 Host canonicalization disabled
 Opening SSH connection to test.rebex.net, port 22
 [conn=1] Connected to SSH server at test.rebex.net, port 22
-[conn=1]   Local address: 10.1.1.96, port 47118
+[conn=1]   Local address: 10.1.0.106, port 52484
 [conn=1]   Peer address: 194.108.117.16, port 22
 [conn=1] Beginning auth for user demo
 [conn=1] Auth for user demo succeeded
@@ -24,44 +24,239 @@ Opening SSH connection to test.rebex.net, port 22
 [conn=1, chan=0] Received exit status 0
 [conn=1, chan=0] Received channel close
 [conn=1, chan=0] Channel closed
+[conn=0, chan=1] Requesting new SSH session
+[conn=1, chan=1] Requesting new SSH session
+[conn=0, chan=1]   Command: pwd
+[conn=1, chan=1]   Command: pwd
+[conn=0, chan=1] Received exit status 0
+[conn=0, chan=1] Received channel close
+[conn=0, chan=1] Channel closed
+[conn=1, chan=1] Received exit status 0
+[conn=1, chan=1] Received channel close
+[conn=1, chan=1] Channel closed
+[conn=0, chan=2] Requesting new SSH session
+[conn=0, chan=2]   Command: ls
+[conn=0, chan=2] Received exit status 0
+[conn=0, chan=2] Received channel close
+[conn=0, chan=2] Channel closed
+[conn=0, chan=3] Requesting new SSH session
+[conn=0, chan=3]   Subsystem: sftp
+[conn=0, chan=3] Starting SFTP client
+[conn=0, chan=3] Received channel close
+[conn=0, chan=3] Channel closed
+[conn=0, chan=3] SFTP client exited
+[conn=0, chan=3] Closing channel
+[conn=0, chan=4] Requesting new SSH session
+[conn=0, chan=4]   Subsystem: sftp
+[conn=0, chan=4] Starting SFTP client
+[conn=0, chan=4] Received channel close
+[conn=0, chan=4] Channel closed
+[conn=0, chan=4] SFTP client exited
+[conn=0, chan=4] Closing channel
+[conn=0, chan=5] Requesting new SSH session
+[conn=0, chan=5]   Subsystem: sftp
+[conn=0, chan=5] Starting SFTP client
+[conn=0, chan=5] Received channel close
+[conn=0, chan=5] Channel closed
+[conn=0, chan=5] SFTP client exited
+[conn=0, chan=5] Closing channel
+[conn=0, chan=6] Requesting new SSH session
+[conn=0, chan=6]   Interactive shell requested
+[conn=0, chan=6] Closing channel
 [
   {
-    "server": "rebex",
-    "host": "test.rebex.net",
-    "exit_code": 0,
-    "stdout": "pub\nreadme.txt\n",
-    "stderr": "",
-    "seconds": 1.8
+    "test": "run_command rebex",
+    "seconds": 1.8,
+    "result": {
+      "server": "rebex",
+      "host": "test.rebex.net",
+      "exit_code": 0,
+      "stdout": "pub\nreadme.txt\n",
+      "stderr": ""
+    }
   },
   {
-    "server": "failover",
-    "host": "test.rebex.net",
-    "exit_code": 0,
-    "stdout": "pub\nreadme.txt\n",
-    "stderr": "",
-    "seconds": 6.8
-  },
-  [
-    {
-      "name": "rebex",
-      "os": null,
-      "hosts": [
-        "test.rebex.net"
-      ],
-      "connected": true,
-      "active_host": "test.rebex.net",
-      "last_error": null
-    },
-    {
-      "name": "failover",
-      "os": null,
-      "hosts": [
-        "10.255.255.1",
-        "test.rebex.net"
-      ],
-      "connected": true,
-      "active_host": "test.rebex.net",
-      "last_error": null
+    "test": "failover",
+    "seconds": 7.0,
+    "result": {
+      "server": "failover",
+      "host": "test.rebex.net",
+      "exit_code": 0,
+      "stdout": "pub\nreadme.txt\n",
+      "stderr": ""
     }
-  ]
+  },
+  {
+    "test": "run_on_group demo",
+    "seconds": 0.3,
+    "result": [
+      {
+        "server": "rebex",
+        "host": "test.rebex.net",
+        "exit_code": 0,
+        "stdout": "/\n",
+        "stderr": ""
+      },
+      {
+        "server": "failover",
+        "host": "test.rebex.net",
+        "exit_code": 0,
+        "stdout": "/\n",
+        "stderr": ""
+      }
+    ]
+  },
+  {
+    "test": "run_snippet",
+    "seconds": 0.3,
+    "result": {
+      "server": "rebex",
+      "host": "test.rebex.net",
+      "exit_code": 0,
+      "stdout": "pub\nreadme.txt\n",
+      "stderr": ""
+    }
+  },
+  {
+    "test": "sftp_list /",
+    "seconds": 1.2,
+    "result": [
+      {
+        "name": "pub",
+        "size": 0,
+        "dir": true,
+        "perm": "0o700",
+        "mtime": 1680277921
+      },
+      {
+        "name": "readme.txt",
+        "size": 379,
+        "dir": false,
+        "perm": "0o600",
+        "mtime": 1695121923
+      }
+    ]
+  },
+  {
+    "test": "sftp_read readme",
+    "seconds": 1.1,
+    "result": {
+      "path": "/readme.txt",
+      "content": "Welcome to test.rebex.net!\r\n\r\nYou are connected to an FTP or SFTP server used for testing purposes\r\nby Rebex FTP/SSL or Rebex SFTP sample code. Only read access is allowed.\r\n\r\nFor information about Rebex FTP/SSL, Rebex SFTP and other Rebex libraries\r\nfor .NET, please visit our website at https://www",
+      "truncated": true
+    }
+  },
+  {
+    "test": "sftp_manage stat",
+    "seconds": 0.8,
+    "result": {
+      "path": "/readme.txt",
+      "size": 379,
+      "perm": "0o600",
+      "uid": null,
+      "gid": null,
+      "mtime": 1695121923
+    }
+  },
+  {
+    "test": "shell_open",
+    "seconds": 1.1,
+    "result": {
+      "shell_id": "be03127a",
+      "output": "For a list of supported commands, type 'help'.\r\ndemo@test:/$ "
+    }
+  },
+  {
+    "test": "shell_send pwd",
+    "seconds": 0.8,
+    "result": {
+      "shell_id": "be03127a",
+      "output": "pwd\r\n/\r\ndemo@test:/$ ",
+      "closed": false
+    }
+  },
+  {
+    "test": "shell_close",
+    "seconds": 0.0,
+    "result": {
+      "closed": true
+    }
+  },
+  {
+    "test": "history",
+    "seconds": 0.0,
+    "result": [
+      {
+        "ts": 1793118351.1008472,
+        "server": "rebex",
+        "command": "ls",
+        "exit_code": 0
+      },
+      {
+        "ts": 1793118358.083772,
+        "server": "failover",
+        "command": "ls",
+        "exit_code": 0
+      },
+      {
+        "ts": 1793118358.3921258,
+        "server": "rebex",
+        "command": "pwd",
+        "exit_code": 0
+      },
+      {
+        "ts": 1793118358.402092,
+        "server": "failover",
+        "command": "pwd",
+        "exit_code": 0
+      },
+      {
+        "ts": 1793118358.7109883,
+        "server": "rebex",
+        "command": "ls",
+        "exit_code": 0
+      },
+      {
+        "ts": 1793118363.6095114,
+        "server": "rebex",
+        "command": "[shell] pwd",
+        "exit_code": null
+      }
+    ]
+  },
+  {
+    "test": "list_servers",
+    "seconds": 0.0,
+    "result": [
+      {
+        "name": "rebex",
+        "os": null,
+        "hosts": [
+          "test.rebex.net"
+        ],
+        "tags": [
+          "demo"
+        ],
+        "jump": null,
+        "connected": true,
+        "active_host": "test.rebex.net",
+        "last_error": null
+      },
+      {
+        "name": "failover",
+        "os": null,
+        "hosts": [
+          "10.255.255.1",
+          "test.rebex.net"
+        ],
+        "tags": [
+          "demo"
+        ],
+        "jump": null,
+        "connected": true,
+        "active_host": "test.rebex.net",
+        "last_error": null
+      }
+    ]
+  }
 ]
