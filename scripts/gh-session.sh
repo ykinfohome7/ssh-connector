@@ -77,6 +77,11 @@ start_server
 TUNNEL=""
 URL=""
 if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
+  # Постоянно име на устройството -> постоянен адрес https://ssh-connector.<tailnet>.ts.net
+  sudo tailscale set --hostname=ssh-connector || true
+  # При край или спиране махаме устройството от мрежата, за да остане името свободно (без ssh-connector-1, -2 ...)
+  trap 'sudo tailscale funnel reset >/dev/null 2>&1 || true; sudo tailscale logout >/dev/null 2>&1 || true' EXIT INT TERM
+  sleep 5
   # Името на устройството в Tailscale (напр. ssh-connector.tail1234.ts.net), без крайната точка
   TS_NAME=$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' || true)
   # Пускаме Funnel във фонов режим: публичен 443 -> локалния сървър на порт 8765
