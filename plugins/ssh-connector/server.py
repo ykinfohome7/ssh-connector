@@ -157,6 +157,10 @@ def init():
 def srv(name):
     init()
     if name not in SERVERS:
+        for key, item in SERVERS.items():
+            if name.casefold() == key.casefold() or any(name.casefold() == x.casefold()
+                                                          for x in item.cfg.get("aliases", [])):
+                return item
         raise ValueError(f"unknown server '{name}'. Known: {', '.join(SERVERS)}")
     return SERVERS[name]
 
@@ -178,6 +182,178 @@ async def list_servers(tag: str = "") -> str:
                     "jump": s.cfg.get("jump"), "connected": s._alive(), "active_host": s.active_host,
                     "last_error": s.last_error})
     return json.dumps(out, indent=2)
+
+
+# ---------------- managed server profiles ----------------
+# Connection profiles (not credentials) persist in SSH_CONNECTOR_CONFIG.
+# On GitHub Actions the config is ephemeral: persist permanent servers in the
+# repository's SSH_CONNECTOR_SERVERS secret or reviewed config/github-session.yaml.
+import ipaddress
+import re
+import tempfile
+
+_PROFILE_LOCK = asyncio.Lock()
+_PROFILE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+_LOGIN_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$")
+_ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+
+def _checked_profile(name, hosts, user, port, tags, aliases, password_env):
+    if not _PROFILE_NAME.fullmatch(name):
+        raise ValueError("Invalid server name: use letters, digits, '-' or '_'")
+    if not _LOGIN_NAME.fullmatch(user):
+        raise ValueError("Invalid SSH username")
+    if not 1 <= int(port) <= 65535:
+        raise ValueError("SSH port must be in 1..65535")
+    if not isinstance(hosts, list) or not 1 <= len(hosts) <= 8:
+        raise ValueError("Provide 1 to 8 IP addresses or hostnames")
+    checked_hosts = []
+    for host in hosts:
+        if not isinstance(host, str) or len(host) > 253 or not host.strip():
+            raise ValueError("Invalid hostname or IP address")
+        h = host.strip()
+        try:
+            ipaddress.ip_address(h.strip("[]"))
+        except ValueError:
+            if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", h) or ".." in h:
+                raise ValueError("Invalid hostname or IP address")
+        checked_hosts.append(h.strip("[]"))
+    if not all(isinstance(t, str) and _PROFILE_NAME.fullmatch(t) for t in tags):
+        raise ValueError("Tags must contain letters, digits, '-' or '_'")
+    if not all(isinstance(a, str) and _PROFILE_NAME.fullmatch(a) for a in aliases):
+        raise ValueError("Aliases must contain letters, digits, '-' or '_'")
+    if password_env and not _ENV_NAME.fullmatch(password_env):
+        raise ValueError("password_env must be the name of an environment variable")
+    return {
+        "hosts": checked_hosts, "user": user, "port": int(port),
+        "tags": tags, "aliases": aliases,
+        "known_hosts": "~/.ssh/known_hosts",
+        **({"password_env": password_env} if password_env else {}),
+    }
+
+
+def _profile_store(modify):
+    path = Path(os.path.expanduser(CONFIG_PATH))
+    with path.open("r", encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+    if not isinstance(raw, dict):
+        raise ValueError("Server configuration must be a YAML map")
+    raw.setdefault("servers", {})
+    if not isinstance(raw["servers"], dict):
+        raise ValueError("servers must be a YAML map")
+    result = modify(raw["servers"])
+    # Reject name/alias collisions before committing.
+    all_names = set()
+    for name, cfg in raw["servers"].items():
+        for value in [name] + (cfg or {}).get("aliases", []):
+            norm = value.casefold()
+            if norm in all_names:
+                raise ValueError("Duplicate server name or alias: " + value)
+            all_names.add(norm)
+    tmpname = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(path.parent),
+                                         prefix=".servers-", delete=False) as out:
+            tmpname = out.name
+            yaml.safe_dump(raw, out, sort_keys=False)
+        os.chmod(tmpname, 0o600)
+        os.replace(tmpname, path)
+    finally:
+        if tmpname and os.path.exists(tmpname):
+            os.unlink(tmpname)
+    # Recreate profiles so address/user changes discard old SSH connections.
+    for old in SERVERS.values():
+        if old.conn:
+            old.conn.close()
+    SERVERS.clear()
+    for name, cfg in raw["servers"].items():
+        SERVERS[name] = Server(name, {**raw.get("defaults", {}), **(cfg or {})})
+    return result
+
+
+def _resolve_profile_name(name):
+    init()
+    for key, item in SERVERS.items():
+        if name.casefold() == key.casefold() or any(
+                name.casefold() == a.casefold() for a in item.cfg.get("aliases", [])):
+            return key
+    raise ValueError("unknown server profile: " + name)
+
+
+@mcp.tool()
+async def server_add(name: str, hosts: list[str], user: str = "bgadmin",
+                     port: int = 22, tags: list[str] = [], aliases: list[str] = [],
+                     password_env: str = "") -> str:
+    """Add an SSH profile, with hostname/IP, user, port, tags and aliases. Use password_env, never a literal password. On Actions changes last only for this runner."""
+    try:
+        profile = _checked_profile(name, hosts, user, port, tags, aliases, password_env)
+        async with _PROFILE_LOCK:
+            init()
+            def change(servers):
+                if any(name.casefold() == key.casefold() for key in servers):
+                    raise ValueError("Server name already registered")
+                servers[name] = profile
+                return {"added": name, "host": hosts[0], "port": port, "user": user,
+                        "persistence": "active backend config; GitHub Actions runner is ephemeral"}
+            return json.dumps(_profile_store(change))
+    except Exception as e:
+        return _err(e, name=name)
+
+
+@mcp.tool()
+async def server_update(name: str, hosts: list[str] = [], user: str = "",
+                        port: int = 0, tags: list[str] = [], aliases: list[str] = [],
+                        password_env: str = "") -> str:
+    """Update a registered profile's addresses, user, port, tags or aliases. Empty/zero fields keep existing values; credential env refs only."""
+    try:
+        async with _PROFILE_LOCK:
+            realname = _resolve_profile_name(name)
+            old = SERVERS[realname].cfg
+            profile = _checked_profile(realname, hosts or old["hosts"], user or old.get("user", "root"),
+                                       port or old.get("port", 22), tags or old.get("tags", []),
+                                       aliases or old.get("aliases", []),
+                                       password_env or old.get("password_env", ""))
+            def change(servers):
+                servers[realname].update(profile)
+                return {"updated": realname, "host": profile["hosts"][0],
+                        "port": profile["port"], "user": profile["user"]}
+            return json.dumps(_profile_store(change))
+    except Exception as e:
+        return _err(e, name=name)
+
+
+@mcp.tool()
+async def server_remove(name: str, confirm: bool = False) -> str:
+    """Remove a registered profile only with confirm=true and no active shell, watcher, tunnel or background job."""
+    if not confirm:
+        return json.dumps({"confirmation_required": True, "server": name})
+    try:
+        async with _PROFILE_LOCK:
+            realname = _resolve_profile_name(name)
+            busy = any(v["server"] == realname for v in SHELLS.values()) or any(
+                v["server"] == realname for v in FORWARDS.values()) or any(
+                k.startswith(realname + ":") and not t.done() for k, t in WATCHERS.items()) or any(
+                v["server"] == realname for v in JOBS.values())
+            if busy:
+                raise ValueError("Server still has shells, jobs, watchers or forwarded ports")
+            def change(servers):
+                del servers[realname]
+                return {"removed": realname}
+            return json.dumps(_profile_store(change))
+    except Exception as e:
+        return _err(e, name=name)
+
+
+@mcp.tool()
+async def server_test(name: str) -> str:
+    """Test an SSH profile's real network route, host key and authentication without showing secrets."""
+    try:
+        realname = _resolve_profile_name(name)
+        s = SERVERS[realname]
+        await s.get_conn()
+        return json.dumps({"server": realname, "connected": True, "active_host": s.active_host})
+    except Exception as e:
+        return _err(e, name=name)
 
 
 @mcp.tool()
