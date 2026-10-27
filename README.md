@@ -41,7 +41,18 @@ claude mcp add ssh -- sh $(pwd)/plugins/ssh-connector/bin/run.sh     # Claude Co
 codex  mcp add ssh -- sh $(pwd)/plugins/ssh-connector/bin/run.sh     # Codex
 ```
 
-## ChatGPT (web / app) — HTTP mode
+## Always-on server (use from iPhone / anywhere)
+SSH into one of your servers (e.g. with Termius) and run:
+```bash
+curl -fsSL https://raw.githubusercontent.com/ykinfohome7/ssh-connector/main/install-server.sh | sudo bash
+```
+It installs the connector as a systemd service, opens a public HTTPS Cloudflare tunnel, creates a token and an
+SSH key, and prints exactly what to paste into Claude and ChatGPT. Show it again any time with `sudo ssh-connector-info`.
+Edit `/etc/ssh-connector/servers.yaml`, then `sudo systemctl restart ssh-connector`.
+Note: a Cloudflare *quick* tunnel gets a new address when the tunnel restarts; for a fixed address use a named
+Cloudflare tunnel or your own domain.
+
+## ChatGPT (web / app) — HTTP mode (manual)
 ChatGPT cannot start local programs, it needs a public HTTPS URL. Run the connector in HTTP mode,
 protected by a secret token, and expose it with a tunnel.
 
