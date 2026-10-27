@@ -28,12 +28,42 @@ cp servers.example.yaml servers.yaml   # edit it
 claude mcp add ssh -- $(pwd)/.venv/bin/python $(pwd)/server.py
 ```
 
-## ChatGPT Codex (~/.codex/config.toml)
+## ChatGPT Codex (CLI / IDE) — local, same as Claude Code
+```bash
+codex mcp add ssh -- $(pwd)/.venv/bin/python $(pwd)/server.py
+```
+or in `~/.codex/config.toml`:
 ```toml
 [mcp_servers.ssh]
 command = "/path/to/ssh-connector/.venv/bin/python"
 args = ["/path/to/ssh-connector/server.py"]
 ```
+
+## ChatGPT (web / app) — HTTP mode
+ChatGPT cannot start local programs, it needs a public HTTPS URL. Run the connector in HTTP mode,
+protected by a secret token, and expose it with a tunnel.
+
+```bash
+export SSH_CONNECTOR_TOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')
+echo $SSH_CONNECTOR_TOKEN            # keep it secret
+.venv/bin/python server.py --http --port 8765
+# in another terminal: public HTTPS URL via Cloudflare quick tunnel
+cloudflared tunnel --url http://127.0.0.1:8765
+```
+In ChatGPT: Settings → Apps & Connectors → Advanced → enable Developer mode → Create connector.
+- URL: `https://<your-tunnel>.trycloudflare.com/<SSH_CONNECTOR_TOKEN>/mcp`
+- Authentication: No authentication (the secret is in the URL — never share it)
+
+Clients that support headers (e.g. remote Codex) can use `https://<host>/mcp` with
+`Authorization: Bearer <SSH_CONNECTOR_TOKEN>`:
+```toml
+[mcp_servers.ssh_remote]
+url = "https://<host>/mcp"
+bearer_token_env_var = "SSH_CONNECTOR_TOKEN"
+```
+
+Requests without the token get `401 unauthorized`. Anyone with the token can run commands on your servers —
+treat it like an SSH key, and stop the HTTP server/tunnel when not in use.
 
 ## Tools
 | Area | Tools |

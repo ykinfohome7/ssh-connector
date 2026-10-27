@@ -13,6 +13,7 @@ Connects directly to target servers over SSH. Features (Termius-style):
 - background jobs for long commands
 - event watchers: service errors, crashes / OOM, logins
 - command history
+- HTTP mode (--http) for ChatGPT and remote clients, token-protected
 """
 import asyncio
 import json
@@ -29,6 +30,11 @@ from mcp.server.fastmcp import FastMCP
 
 CONFIG_PATH = os.environ.get("SSH_CONNECTOR_CONFIG", str(Path(__file__).with_name("servers.yaml")))
 mcp = FastMCP("ssh-connector")
+try:  # allow access through a tunnel / reverse proxy (Host header is the public domain); auth is enforced below
+    from mcp.server.transport_security import TransportSecuritySettings
+    mcp.settings.transport_security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+except Exception:
+    pass
 
 
 def load_config():
@@ -503,5 +509,45 @@ async def get_events(since: float = 0, server: str = "", limit: int = 100) -> st
     return json.dumps(ev[-limit:], indent=2)
 
 
+# ---------------- HTTP mode (ChatGPT, remote Codex) ----------------
+def http_app(token):
+    """Streamable HTTP app guarded by a token: either 'Authorization: Bearer <token>'
+    or a secret URL prefix https://host/<token>/mcp (for clients without header auth, e.g. ChatGPT)."""
+    app = mcp.streamable_http_app()
+    prefix = f"/{token}"
+
+    async def guarded(scope, receive, send):
+        if scope["type"] == "http":
+            path = scope.get("path", "")
+            headers = dict(scope.get("headers") or [])
+            auth = headers.get(b"authorization", b"").decode()
+            if path.startswith(prefix + "/"):
+                new = path[len(prefix):]
+                scope = dict(scope, path=new, raw_path=new.encode())
+            elif auth != f"Bearer {token}":
+                await send({"type": "http.response.start", "status": 401,
+                            "headers": [(b"content-type", b"text/plain")]})
+                await send({"type": "http.response.body", "body": b"unauthorized"})
+                return
+        await app(scope, receive, send)
+
+    return guarded
+
+
 if __name__ == "__main__":
-    mcp.run()
+    import argparse
+
+    p = argparse.ArgumentParser()
+    p.add_argument("--http", action="store_true", help="serve over streamable HTTP instead of stdio")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8765)
+    a = p.parse_args()
+    if a.http:
+        token = os.environ.get("SSH_CONNECTOR_TOKEN", "")
+        if len(token) < 24:
+            raise SystemExit("Set SSH_CONNECTOR_TOKEN to a random secret of at least 24 characters "
+                             "(e.g. python3 -c 'import secrets;print(secrets.token_urlsafe(32))')")
+        import uvicorn
+        uvicorn.run(http_app(token), host=a.host, port=a.port)
+    else:
+        mcp.run()
