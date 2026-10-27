@@ -1,0 +1,6 @@
+{
+  "ssh": {
+    "command": "sh",
+    "args": ["./bin/run.sh"]
+  }
+}

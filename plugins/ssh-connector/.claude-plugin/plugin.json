@@ -1,0 +1,16 @@
+{
+  "name": "ssh-connector",
+  "version": "0.4.0",
+  "description": "Work directly over SSH on many Debian and Red Hat servers: commands, groups, snippets, interactive shells, SFTP, tunnels, jump hosts, failover and event watching.",
+  "author": { "name": "ykinfohome7" },
+  "homepage": "https://github.com/ykinfohome7/ssh-connector",
+  "repository": "https://github.com/ykinfohome7/ssh-connector",
+  "license": "GPL-3.0",
+  "keywords": ["ssh", "sftp", "devops", "servers", "debian", "redhat"],
+  "mcpServers": {
+    "ssh": {
+      "command": "sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/run.sh"]
+    }
+  }
+}

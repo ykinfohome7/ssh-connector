@@ -1,6 +1,8 @@
 import asyncio, json, os, sys, time
 os.environ["SSH_CONNECTOR_CONFIG"] = os.path.join(os.path.dirname(__file__), "servers.test.yaml")
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PLUGIN = os.path.join(REPO, "plugins", "ssh-connector")
+sys.path.insert(0, PLUGIN)
 import server
 
 
@@ -48,6 +50,30 @@ async def http_check():
         proc.terminate()
 
 
+async def plugin_check():
+    """Validate plugin manifests and start the server exactly as Claude Code / Codex would (sh bin/run.sh)."""
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    manifests = {}
+    for p in [".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json",
+              "plugins/ssh-connector/.claude-plugin/plugin.json", "plugins/ssh-connector/.codex-plugin/plugin.json",
+              "plugins/ssh-connector/codex-mcp.json"]:
+        with open(os.path.join(REPO, p)) as f:
+            json.load(f)
+        manifests[p] = "valid json"
+    params = StdioServerParameters(
+        command="sh", args=[os.path.join(PLUGIN, "bin", "run.sh")],
+        env=dict(os.environ, CLAUDE_PLUGIN_DATA="/tmp/sshconn-plugin-data"))
+    async with stdio_client(params) as (r, w):
+        async with ClientSession(r, w) as s:
+            await asyncio.wait_for(s.initialize(), 300)
+            tools = await s.list_tools()
+            res = await s.call_tool("run_command", {"server": "rebex", "command": "ls"})
+    return json.dumps({"manifests": manifests, "launcher_tools": len(tools.tools),
+                       "launcher_call": json.loads(res.content[0].text)})
+
+
 async def main():
     out = [
         await step("run_command rebex", server.run_command("rebex", "ls")),
@@ -67,6 +93,7 @@ async def main():
     out.append(await step("history", server.history(10)))
     out.append(await step("list_servers", server.list_servers()))
     out.append(await step("http mode", http_check()))
+    out.append(await step("plugin launcher", plugin_check()))
     print(json.dumps(out, indent=2, ensure_ascii=False))
 
 

@@ -1,0 +1,12 @@
+{
+  "name": "ykinfohome7-tools",
+  "interface": { "displayName": "ykinfohome7 tools" },
+  "plugins": [
+    {
+      "name": "ssh-connector",
+      "source": { "source": "local", "path": "./plugins/ssh-connector" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Developer Tools"
+    }
+  ]
+}

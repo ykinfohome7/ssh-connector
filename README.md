@@ -16,27 +16,29 @@ Local MCP server that lets **Claude Code** and **ChatGPT Codex** work directly o
 - Command history
 - Up to 10 parallel sessions per server
 
-## Install
+## 1. Your server list
+Create `~/.ssh-connector/servers.yaml` from [`servers.example.yaml`](servers.example.yaml)
+(or point `SSH_CONNECTOR_CONFIG` to another file). Needs `python3` on the machine.
+
+## 2a. Claude Code — plugin (recommended)
+```bash
+claude plugin marketplace add ykinfohome7/ssh-connector
+claude plugin install ssh-connector@ykinfohome7-tools
+```
+Inside a session: `/plugin marketplace add ykinfohome7/ssh-connector`, then `/plugin install ssh-connector@ykinfohome7-tools`.
+The first start creates a private virtualenv and installs dependencies (takes ~30 s once).
+
+## 2b. ChatGPT Codex — plugin
+```bash
+codex plugin marketplace add ykinfohome7/ssh-connector
+```
+then enable `ssh-connector` from the plugin list (ChatGPT desktop app / Codex).
+
+## 2c. Without plugins (manual MCP)
 ```bash
 git clone https://github.com/ykinfohome7/ssh-connector && cd ssh-connector
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp servers.example.yaml servers.yaml   # edit it
-```
-
-## Claude Code
-```bash
-claude mcp add ssh -- $(pwd)/.venv/bin/python $(pwd)/server.py
-```
-
-## ChatGPT Codex (CLI / IDE) — local, same as Claude Code
-```bash
-codex mcp add ssh -- $(pwd)/.venv/bin/python $(pwd)/server.py
-```
-or in `~/.codex/config.toml`:
-```toml
-[mcp_servers.ssh]
-command = "/path/to/ssh-connector/.venv/bin/python"
-args = ["/path/to/ssh-connector/server.py"]
+claude mcp add ssh -- sh $(pwd)/plugins/ssh-connector/bin/run.sh     # Claude Code
+codex  mcp add ssh -- sh $(pwd)/plugins/ssh-connector/bin/run.sh     # Codex
 ```
 
 ## ChatGPT (web / app) — HTTP mode
@@ -46,7 +48,7 @@ protected by a secret token, and expose it with a tunnel.
 ```bash
 export SSH_CONNECTOR_TOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')
 echo $SSH_CONNECTOR_TOKEN            # keep it secret
-.venv/bin/python server.py --http --port 8765
+sh plugins/ssh-connector/bin/run.sh --http --port 8765
 # in another terminal: public HTTPS URL via Cloudflare quick tunnel
 cloudflared tunnel --url http://127.0.0.1:8765
 ```
