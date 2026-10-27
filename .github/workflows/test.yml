@@ -1,0 +1,24 @@
+name: connection-test
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["test-results.txt"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python tests/test_connect.py > test-results.txt 2>&1 || true
+      - run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add test-results.txt
+          git commit -m "test results [skip ci]" || true
+          git push
