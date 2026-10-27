@@ -1,0 +1,34 @@
+name: connector-session
+# Start / stop / restart the connector for testing and development.
+#   start or restart: change control/session to "start" (line 2: anything new, e.g. a timestamp)
+#   stop:             change control/session to "stop"
+#   or: Actions tab > connector-session > Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "How many hours to keep it running (max 5.5)"
+        default: "5"
+  push:
+    branches: [main]
+    paths: ["control/session"]
+concurrency:
+  group: connector-session
+  cancel-in-progress: true
+permissions:
+  contents: write
+jobs:
+  session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run connector session
+        env:
+          HOURS: ${{ github.event.inputs.hours || '5' }}
+          SSH_CONNECTOR_TOKEN: ${{ secrets.SSH_CONNECTOR_TOKEN }}
+          SSH_CONNECTOR_SERVERS: ${{ secrets.SSH_CONNECTOR_SERVERS }}
+          SSH_CONNECTOR_KEY: ${{ secrets.SSH_CONNECTOR_KEY }}
+        run: bash scripts/gh-session.sh
