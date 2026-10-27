@@ -32,6 +32,7 @@ servers:
     user: bgadmin
     hosts: [100.65.111.82]
     port: 2222
+    aliases: [github_bgdb]
     password_env: BGDB_SSH_PASSWORD
     known_hosts: ~/.ssh/known_hosts
     tags: [github, debian, codespaces, tailscale]
