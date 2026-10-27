@@ -9,7 +9,11 @@ servers:
     user: demo
     password: password
     hosts: [test.rebex.net]
+    tags: [demo]
   failover:
     user: demo
     password: password
     hosts: [10.255.255.1, test.rebex.net]
+    tags: [demo]
+snippets:
+  list: ls
