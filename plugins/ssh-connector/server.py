@@ -774,6 +774,7 @@ if __name__ == "__main__":
     import argparse
 
     p = argparse.ArgumentParser()
+    p.add_argument("-v", "--version", action="version", version=f"ssh-connector {APP_VERSION}")
     p.add_argument("--http", action="store_true", help="serve over streamable HTTP instead of stdio")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
