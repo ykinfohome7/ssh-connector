@@ -1,6 +1,6 @@
 # ssh-connector
 
-**Version: 1.2.0** · GitHub Actions SSH backend + Tailscale + MCP profile management. The current live connector may still run an older release until its GitHub Actions session is restarted. Use MCP `version_info` to check the actual running version.
+**Version: 1.3.0** · GitHub Actions SSH backend + Tailscale + MCP profile management. The current live connector may still run an older release until its GitHub Actions session is restarted. Use MCP `version_info` to check the actual running version.
 
 Local MCP server that lets **Claude Code** and **ChatGPT Codex** work directly over SSH on multiple Debian and Red Hat servers, Termius-style. No gateway in between.
 
