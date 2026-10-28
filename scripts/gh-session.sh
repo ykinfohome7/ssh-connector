@@ -154,9 +154,6 @@ time: $(date -u +%FT%TZ)" error
   fi
 fi
 
-# v1.3.2: конекторът сам чете адреса оттук, когато потрябва (без рестарт)
-printf '%s\n' "$URL" > /tmp/public-url
-
 # An unauthenticated POST to /mcp must return HTTP 401 over valid TLS.
 # HTTP 000 means DNS, network, TLS or timeout failure, not success.
 check_public_https() {
@@ -189,6 +186,8 @@ reason: HTTPS endpoint unavailable; inspect workflow logs and DNS/TLS
 time: $(date -u +%FT%TZ)" error
   exit 1
 fi
+# Publish only the endpoint that passed TLS and auth testing (including fallback).
+printf '%s\n' "$URL" > /tmp/public-url
 printf 'https_probe: 401 (TLS verified, unauthenticated access blocked)\n' >> /tmp/ts-diag.log
 
 # Диагностика на Tailscale (без тайни): версия, сертификат, Funnel
@@ -202,7 +201,7 @@ END_TS=$(( $(date +%s) + $(awk "BEGIN{print int($HOURS*3600)}") ))
 END=$(date -u -d "@$END_TS" +%FT%TZ)
 STATUS_BASE="# Connector session
 state: running
-tunnel: $TUNNEL   (funnel = permanent URL / постоянен адрес)
+tunnel: $TUNNEL   (Funnel name is tied to this temporary runner)
 url: $URL
 claude_url: $URL/mcp   (header: Authorization = Bearer <SSH_CONNECTOR_TOKEN>)
 chatgpt_url: $URL/<SSH_CONNECTOR_TOKEN>/mcp
