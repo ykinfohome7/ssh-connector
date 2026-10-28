@@ -28,6 +28,12 @@ jobs:
         run: |
           bash -n scripts/gh-session.sh
           bash -n scripts/cloudns-ddns.sh
+          bash -n scripts/setup-bgssh-domain.sh
+          bash -n install-server.sh
+          # Both public and local installers must not add root SSH authorization.
+          ! grep -q 'cat.*id_ed25519.pub.*>> /root/.ssh/authorized_keys' install-server.sh
+          # GitHub Actions must not fall back to ephemeral quick tunnels.
+          ! grep -Eq 'cloudflared tunnel|start_cloudflare' scripts/gh-session.sh
       - name: Test ClouDNS DDNS safety (offline, no DNS calls)
         run: python3 tests/test_cloudns_ddns.py
       - uses: actions/setup-python@v5
