@@ -81,23 +81,44 @@ Requests without the token get `401 unauthorized`. Anyone with the token can run
 treat it like an SSH key, and stop the HTTP server/tunnel when not in use.
 
 ## Tools
+Full list with parameters and a ready-to-run example for every command:
+**[docs/COMMANDS.md](docs/COMMANDS.md)** · на български: **[docs/COMMANDS.bg.md](docs/COMMANDS.bg.md)**.
+Inside ChatGPT/Claude, the `help` command lists the same in BG and EN.
+
 | Area | Tools |
 |---|---|
-| Servers | `list_servers`, `run_command`, `run_on_many`, `run_on_group`, `history` |
-| Snippets | `list_snippets`, `run_snippet` |
+| Info | `help`, `version_info`, `health_status` |
+| Server profiles | `list_servers`, `server_get`, `server_add`, `server_update`, `server_rename`, `server_set_primary`, `server_failover`, `server_test`, `server_remove` |
+| Credentials | `credentials_set`, `credentials_rotate` |
+| Commands | `run_command`, `run_on_many`, `run_on_group`, `list_snippets`, `run_snippet`, `history` |
+| Jobs | `start_job`, `job_status` |
 | Shell | `shell_open`, `shell_send`, `shell_close`, `list_shells` |
 | SFTP | `sftp_list`, `sftp_read`, `sftp_write`, `sftp_upload`, `sftp_download`, `sftp_manage` |
 | Tunnels | `port_forward`, `list_forwards`, `stop_forward` |
-| Jobs | `start_job`, `job_status` |
 | Events | `start_watch`, `stop_watch`, `get_events` |
+
+The command docs are generated from the code: after changing a command run
+`python3 scripts/gen_commands_docs.py` (CI can run it with `--check`).
+> _Документацията се генерира от кода — след промяна пуснете скрипта._
+
+## Documentation / Документация
+| Document | EN | BG |
+|---|---|---|
+| Commands / Команди | [COMMANDS.md](docs/COMMANDS.md) | [COMMANDS.bg.md](docs/COMMANDS.bg.md) |
+| Security standards / Сигурност | [SECURITY-STANDARDS.md](docs/SECURITY-STANDARDS.md) | [SECURITY-STANDARDS.bg.md](docs/SECURITY-STANDARDS.bg.md) |
+| v1.3 handoff brief / Задание | — | [HANDOFF-1.3.md](docs/HANDOFF-1.3.md) |
 
 Keep `servers.yaml` and keys out of git (already in .gitignore).
 
 
 ## GitHub Actions -> BGDB Codespaces through Tailscale
 
-The repository includes an on-demand GitHub Actions backend with a Cloudflare
-HTTPS MCP tunnel. The backend session is **temporary** (5 hours by default).
+The repository includes an on-demand GitHub Actions backend exposed over HTTPS through
+**Tailscale Funnel** at a **permanent** URL `https://ssh-connector.<tailnet>.ts.net`
+(fallback: a temporary Cloudflare quick tunnel if Tailscale is not configured).
+> _Постоянен адрес през Tailscale Funnel; не се сменя при рестарт._
+
+The backend session is **temporary** (5 hours by default).
 It is NOT the same as the BGDB Codespace itself.
 
 Default session host list: `config/github-session.yaml`. It keeps `rebex`
@@ -128,8 +149,9 @@ default profile list: add BGDB there too, or remove that override.
 After creating secrets, restart the Actions session via workflow dispatch or
 editing `control/session`. The Tailscale action connects first, then the
 connector loads its hosts. Review `control/status.md` and the Actions logs.
-A Cloudflare **quick tunnel changes URL** when the runner restarts, so an
-existing ChatGPT plugin may need its MCP endpoint updated. Do not put a token
+With Funnel the URL stays the same across restarts (requires HTTPS certificates
+and the `funnel` node attribute enabled in the tailnet, and `statedir` in the
+workflow's Tailscale step). Only the Cloudflare fallback changes URL on restart. Do not put a token
 in a publicly committed URL or support message.
 
 The backend now exposes `server_add`, `server_update`, `server_remove`,
