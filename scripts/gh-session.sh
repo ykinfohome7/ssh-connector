@@ -65,7 +65,7 @@ fi
 
 
 start_server() {
-  SSH_CONNECTOR_CONFIG="$CFG" SSH_CONNECTOR_AUTH_LOG=/tmp/auth.log nohup /tmp/venv/bin/python plugins/ssh-connector/server.py \
+  SSH_CONNECTOR_CONFIG="$CFG" SSH_CONNECTOR_AUTH_LOG=/tmp/auth.log SSH_CONNECTOR_PUBLIC_URL="${PUBLIC_URL:-}" nohup /tmp/venv/bin/python plugins/ssh-connector/server.py \
     --http --host 127.0.0.1 --port 8765 >> /tmp/server.log 2>&1 &
   echo $! > /tmp/server.pid
 }
@@ -114,6 +114,12 @@ if [ -z "$URL" ]; then
   [ -n "$URL" ] || { echo "::error::Tunnel did not start"; cat /tmp/tunnel.log; exit 1; }
   TUNNEL=cloudflare
 fi
+
+# v1.3.2: рестарт на сървъра с публичния адрес, за да работят еднократните връзки за sudo паролата
+kill "$(cat /tmp/server.pid)" 2>/dev/null || true
+sleep 1
+export PUBLIC_URL="$URL"   # остава и при автоматичен рестарт по-долу
+start_server
 
 # Проверка: без токен адресът трябва да връща 401 (защитен). Първият сертификат на Funnel може да отнеме до минута.
 code=000
