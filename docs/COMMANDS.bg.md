@@ -1,6 +1,6 @@
 # Команди на SSH Connector
 
-Версия: **1.2.0** · Команди: **38**
+Версия: **1.3.0** · Команди: **44**
 
 > Този файл се генерира автоматично от кода (`scripts/gen_commands_docs.py`). Не го редактирайте на ръка.
 
@@ -14,6 +14,8 @@
 - [Информация и помощ](#информация-и-помощ) — `help`, `version_info`, `health_status`
 - [Сървърни профили](#сървърни-профили) — `list_servers`, `server_get`, `server_add`, `server_update`, `server_rename`, `server_set_primary`, `server_failover`, `server_test`, `server_remove`
 - [Данни за достъп](#данни-за-достъп) — `credentials_set`, `credentials_rotate`
+- [Настройки на сесията](#настройки-на-сесията) — `session_configure`
+- [Tailscale](#tailscale) — `tailscale_status`, `tailscale_devices`, `tailscale_keys`, `tailscale_key_create`, `tailscale_key_revoke`
 - [Команди](#команди) — `run_command`, `run_on_many`, `run_on_group`, `list_snippets`, `run_snippet`, `history`
 - [Задачи във фонов режим](#задачи-във-фонов-режим) — `start_job`, `job_status`
 - [Интерактивен терминал](#интерактивен-терминал) — `shell_open`, `shell_send`, `shell_close`, `list_shells`
@@ -242,6 +244,106 @@ _Без параметри._
 
 ```json
 {"tool": "credentials_rotate", "arguments": {"name": "BGDB", "key_type": "ed25519", "confirm": false, "remove_old_key": false}}
+```
+
+## Настройки на сесията
+
+### `session_configure`
+
+Таймаути, опити, keepalive, паралелни сесии
+
+| Параметър | Тип | Задължителен | По подразбиране |
+|---|---|---|---|
+| `server` | str | не | `""` |
+| `connect_timeout` | int | не | `0` |
+| `retries` | int | не | `0` |
+| `keepalive_interval` | int | не | `0` |
+| `keepalive_count_max` | int | не | `0` |
+| `command_timeout` | int | не | `0` |
+| `max_sessions` | int | не | `0` |
+
+**Пример:**
+
+```json
+{"tool": "session_configure", "arguments": {"server": "BGDB", "connect_timeout": 10, "retries": 3, "command_timeout": 300}}
+```
+
+## Tailscale
+
+### `tailscale_status`
+
+Tailscale: версия, устройство, акаунт, Funnel
+
+_Без параметри._
+
+**Пример:**
+
+```json
+{"tool": "tailscale_status", "arguments": {}}
+```
+
+### `tailscale_devices`
+
+Устройства в Tailscale мрежата
+
+| Параметър | Тип | Задължителен | По подразбиране |
+|---|---|---|---|
+| `online_only` | bool | не | `false` |
+
+**Пример:**
+
+```json
+{"tool": "tailscale_devices", "arguments": {"online_only": false}}
+```
+
+### `tailscale_keys`
+
+Списък с auth ключове (без стойностите)
+
+_Без параметри._
+
+**Пример:**
+
+```json
+{"tool": "tailscale_keys", "arguments": {}}
+```
+
+### `tailscale_key_create`
+
+Нов auth ключ (само с потвърждение)
+
+⚠️ **Изисква изрично потвърждение (`confirm: true`).**
+
+| Параметър | Тип | Задължителен | По подразбиране |
+|---|---|---|---|
+| `description` | str | не | `"ssh-connector"` |
+| `reusable` | bool | не | `true` |
+| `ephemeral` | bool | не | `true` |
+| `tags` | list[str] | не | `[]` |
+| `expiry_days` | int | не | `90` |
+| `confirm` | bool | не | `false` |
+
+**Пример:**
+
+```json
+{"tool": "tailscale_key_create", "arguments": {"description": "github-runner", "reusable": true, "ephemeral": true, "expiry_days": 90, "confirm": false}}
+```
+
+### `tailscale_key_revoke`
+
+Отнема компрометиран ключ (само с потвърждение)
+
+⚠️ **Изисква изрично потвърждение (`confirm: true`).**
+
+| Параметър | Тип | Задължителен | По подразбиране |
+|---|---|---|---|
+| `key_id` | str | да |  |
+| `confirm` | bool | не | `false` |
+
+**Пример:**
+
+```json
+{"tool": "tailscale_key_revoke", "arguments": {"key_id": "kXXXXXXXXXX", "confirm": false}}
 ```
 
 ## Команди

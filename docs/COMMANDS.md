@@ -1,6 +1,6 @@
 # SSH Connector commands
 
-Version: **1.2.0** · Commands: **38**
+Version: **1.3.0** · Commands: **44**
 
 > Generated from the code by `scripts/gen_commands_docs.py` — do not edit by hand.
 > _Генерира се автоматично от кода — не редактирайте на ръка._
@@ -16,6 +16,8 @@ Passwords, keys and tokens are **never** shown or stored — only environment-va
 - [Info & help](#info--help) — `help`, `version_info`, `health_status`
 - [Server profiles](#server-profiles) — `list_servers`, `server_get`, `server_add`, `server_update`, `server_rename`, `server_set_primary`, `server_failover`, `server_test`, `server_remove`
 - [Credentials](#credentials) — `credentials_set`, `credentials_rotate`
+- [Session settings](#session-settings) — `session_configure`
+- [Tailscale](#tailscale) — `tailscale_status`, `tailscale_devices`, `tailscale_keys`, `tailscale_key_create`, `tailscale_key_revoke`
 - [Commands](#commands) — `run_command`, `run_on_many`, `run_on_group`, `list_snippets`, `run_snippet`, `history`
 - [Background jobs](#background-jobs) — `start_job`, `job_status`
 - [Interactive terminal](#interactive-terminal) — `shell_open`, `shell_send`, `shell_close`, `list_shells`
@@ -244,6 +246,106 @@ Rotate the SSH key (confirm required)
 
 ```json
 {"tool": "credentials_rotate", "arguments": {"name": "BGDB", "key_type": "ed25519", "confirm": false, "remove_old_key": false}}
+```
+
+## Session settings
+
+### `session_configure`
+
+Timeouts, retries, keepalive, parallel sessions
+
+| Parameter | Type | Required | Default |
+|---|---|---|---|
+| `server` | str | no | `""` |
+| `connect_timeout` | int | no | `0` |
+| `retries` | int | no | `0` |
+| `keepalive_interval` | int | no | `0` |
+| `keepalive_count_max` | int | no | `0` |
+| `command_timeout` | int | no | `0` |
+| `max_sessions` | int | no | `0` |
+
+**Example:**
+
+```json
+{"tool": "session_configure", "arguments": {"server": "BGDB", "connect_timeout": 10, "retries": 3, "command_timeout": 300}}
+```
+
+## Tailscale
+
+### `tailscale_status`
+
+Tailscale: version, device, account, Funnel
+
+_No parameters._
+
+**Example:**
+
+```json
+{"tool": "tailscale_status", "arguments": {}}
+```
+
+### `tailscale_devices`
+
+Devices in the tailnet
+
+| Parameter | Type | Required | Default |
+|---|---|---|---|
+| `online_only` | bool | no | `false` |
+
+**Example:**
+
+```json
+{"tool": "tailscale_devices", "arguments": {"online_only": false}}
+```
+
+### `tailscale_keys`
+
+List auth keys (no values)
+
+_No parameters._
+
+**Example:**
+
+```json
+{"tool": "tailscale_keys", "arguments": {}}
+```
+
+### `tailscale_key_create`
+
+New auth key (confirm required)
+
+⚠️ **Requires explicit confirmation (`confirm: true`).** _Изисква потвърждение._
+
+| Parameter | Type | Required | Default |
+|---|---|---|---|
+| `description` | str | no | `"ssh-connector"` |
+| `reusable` | bool | no | `true` |
+| `ephemeral` | bool | no | `true` |
+| `tags` | list[str] | no | `[]` |
+| `expiry_days` | int | no | `90` |
+| `confirm` | bool | no | `false` |
+
+**Example:**
+
+```json
+{"tool": "tailscale_key_create", "arguments": {"description": "github-runner", "reusable": true, "ephemeral": true, "expiry_days": 90, "confirm": false}}
+```
+
+### `tailscale_key_revoke`
+
+Revoke a compromised key (confirm required)
+
+⚠️ **Requires explicit confirmation (`confirm: true`).** _Изисква потвърждение._
+
+| Parameter | Type | Required | Default |
+|---|---|---|---|
+| `key_id` | str | yes |  |
+| `confirm` | bool | no | `false` |
+
+**Example:**
+
+```json
+{"tool": "tailscale_key_revoke", "arguments": {"key_id": "kXXXXXXXXXX", "confirm": false}}
 ```
 
 ## Commands

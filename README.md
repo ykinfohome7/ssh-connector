@@ -90,6 +90,8 @@ Inside ChatGPT/Claude, the `help` command lists the same in BG and EN.
 | Info | `help`, `version_info`, `health_status` |
 | Server profiles | `list_servers`, `server_get`, `server_add`, `server_update`, `server_rename`, `server_set_primary`, `server_failover`, `server_test`, `server_remove` |
 | Credentials | `credentials_set`, `credentials_rotate` |
+| Session | `session_configure` |
+| Tailscale | `tailscale_status`, `tailscale_devices`, `tailscale_keys`, `tailscale_key_create`, `tailscale_key_revoke` |
 | Commands | `run_command`, `run_on_many`, `run_on_group`, `list_snippets`, `run_snippet`, `history` |
 | Jobs | `start_job`, `job_status` |
 | Shell | `shell_open`, `shell_send`, `shell_close`, `list_shells` |
