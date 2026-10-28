@@ -30,7 +30,7 @@ servers:
   BGDB-Codespaces:
     os: debian
     user: bgadmin
-    hosts: [100.65.111.82]
+    hosts: [100.98.41.79]
     port: 2222
     aliases: [github_bgdb]
     password_env: BGDB_SSH_PASSWORD
