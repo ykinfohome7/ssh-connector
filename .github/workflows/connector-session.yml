@@ -8,7 +8,7 @@ on:
     inputs:
       hours:
         description: "How many hours to keep it running (max 5.5)"
-        default: "5"
+        default: "5.5"
   push:
     branches: [main]
     paths: ["control/session"]
@@ -47,7 +47,19 @@ jobs:
         if: steps.ts.outputs.configured == 'true'
         run: |
           tailscale status
-          tailscale ping --timeout=4s 100.98.41.79 || echo "::warning::BGDB not reachable on Tailscale (may be asleep or access rules may deny it)."
+          if tailscale ping --timeout=4s 100.98.41.79; then
+            echo "BGDB_TAILSCALE_PING=confirmed" >> "$GITHUB_ENV"
+          else
+            echo "BGDB_TAILSCALE_PING=failed" >> "$GITHUB_ENV"
+            echo "::warning::BGDB Tailscale ping failed; Codespace may be asleep or blocked."
+          fi
+          # TCP port reachability is distinct from SSH host verification and login.
+          if timeout 6 bash -c 'exec 3<>/dev/tcp/100.98.41.79/2222' 2>/dev/null; then
+            echo "BGDB_SSH_PORT=reachable" >> "$GITHUB_ENV"
+          else
+            echo "BGDB_SSH_PORT=unreachable" >> "$GITHUB_ENV"
+            echo "::warning::BGDB SSH TCP port 2222 is not reachable."
+          fi
       - name: Run connector session
         env:
           HOURS: ${{ github.event.inputs.hours || '5' }}
