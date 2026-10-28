@@ -22,6 +22,9 @@ GROUPS = [
      ["list_servers", "server_get", "server_add", "server_update", "server_rename", "server_set_primary",
       "server_failover", "server_test", "server_remove"]),
     ("Credentials", "Данни за достъп", ["credentials_set", "credentials_rotate"]),
+    ("Session settings", "Настройки на сесията", ["session_configure"]),
+    ("Tailscale", "Tailscale", ["tailscale_status", "tailscale_devices", "tailscale_keys", "tailscale_key_create",
+                                "tailscale_key_revoke"]),
     ("Commands", "Команди", ["run_command", "run_on_many", "run_on_group", "list_snippets", "run_snippet", "history"]),
     ("Background jobs", "Задачи във фонов режим", ["start_job", "job_status"]),
     ("Interactive terminal", "Интерактивен терминал", ["shell_open", "shell_send", "shell_close", "list_shells"]),
@@ -31,7 +34,7 @@ GROUPS = [
     ("Event watching", "Наблюдение на събития", ["start_watch", "stop_watch", "get_events"]),
 ]
 # Команди, които променят достъп или трият — маркираме ги в документите
-CONFIRM = {"server_remove", "credentials_rotate"}
+CONFIRM = {"server_remove", "credentials_rotate", "tailscale_key_create", "tailscale_key_revoke"}
 
 
 def params(name):
