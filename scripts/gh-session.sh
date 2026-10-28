@@ -33,6 +33,11 @@ time: $(date -u +%FT%TZ)" stopped
   exit 0
 fi
 
+# Only the real public HTTPS ingress may update bgssh.abrdns.com.
+# GitHub Actions is ALWAYS skipped by cloudns-ddns.sh, regardless of secrets.
+# Persistent Debian deployments can enable the same hook with private env vars.
+bash scripts/cloudns-ddns.sh
+
 if [ -z "${SSH_CONNECTOR_TOKEN:-}" ] || [ "${#SSH_CONNECTOR_TOKEN}" -lt 24 ]; then
   publish "# Connector session
 state: error

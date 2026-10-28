@@ -24,8 +24,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Check connector startup script syntax
-        run: bash -n scripts/gh-session.sh
+      - name: Check connector and DDNS boot syntax
+        run: |
+          bash -n scripts/gh-session.sh
+          bash -n scripts/cloudns-ddns.sh
+      - name: Test ClouDNS DDNS safety (offline, no DNS calls)
+        run: python3 tests/test_cloudns_ddns.py
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
