@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs ssh-connector + a public HTTPS address (Tailscale Funnel, fallback trycloudflare) inside a GitHub Actions job, for testing and development.
+# Runs ssh-connector through mandatory Tailscale Funnel HTTPS on a GitHub Actions runner.
+# Fail closed if HTTPS Funnel is unavailable: no changing Cloudflare quick-tunnel URLs.
 # Controlled by control/session (first word: start | stop). Publishes the URL (never the token) to control/status.md.
 # Secrets (repo Settings > Secrets and variables > Actions):
 #   SSH_CONNECTOR_TOKEN    required - the access token (same idea as on a server)
@@ -102,8 +103,7 @@ time: $(date -u +%FT%TZ)" error
 fi
 
 # --- Публичен HTTPS адрес / Public HTTPS address ---
-# 1) Tailscale Funnel: DNS URL belongs to this temporary runner, not a static IP
-# 2) Резерва: временен trycloudflare тунел (адресът се сменя при всеки рестарт)
+# Tailscale Funnel is the ONLY allowed HTTPS ingress. No fallback to temporary tunnels.
 TUNNEL=""
 URL=""
 # Public status must contain diagnostics only, never raw tunnel output or secrets.
@@ -142,48 +142,22 @@ if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; the
     else
       FUNNEL_DIAGNOSTIC="$(classify_funnel_failure)"
     fi
-    echo "::warning::Tailscale Funnel unavailable ($FUNNEL_DIAGNOSTIC); using temporary Cloudflare tunnel"
-  fi
-fi
-
-# Fallback for a failed Funnel. This URL will be temporary.
-start_cloudflare() {
-  if [ ! -x /tmp/cloudflared ]; then
-    if ! curl -fsSL --retry 2 --max-time 45 -o /tmp/cloudflared \
-      https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64; then
-      echo "::warning::Unable to download Cloudflare tunnel binary"
-      return 1
-    fi
-    chmod +x /tmp/cloudflared
-  fi
-  nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8765 \
-    > /tmp/cloudflare-tunnel.log 2>&1 &
-  echo $! > /tmp/cloudflared.pid
-  local found=""
-  for i in $(seq 1 60); do
-    found=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cloudflare-tunnel.log | head -1 || true)
-    if [ -n "$found" ]; then
-      URL="$found"
-      TUNNEL=cloudflare
-      return 0
-    fi
-    if ! kill -0 "$(cat /tmp/cloudflared.pid)" 2>/dev/null; then
-      break
-    fi
-    sleep 2
-  done
-  echo "::warning::Cloudflare tunnel did not expose a URL"
-  return 1
-}
-
-if [ -z "$URL" ]; then
-  if ! start_cloudflare; then
+    echo "::error::Tailscale Funnel unavailable ($FUNNEL_DIAGNOSTIC); refusing temporary HTTPS tunnels"
     publish "# Connector session
 state: error
-reason: neither Funnel nor Cloudflare tunnel started
+tunnel: none
+reason: $FUNNEL_DIAGNOSTIC
 time: $(date -u +%FT%TZ)" error
     exit 1
   fi
+else
+  echo "::error::Tailscale is not connected; no public MCP ingress will start"
+  publish "# Connector session
+state: error
+tunnel: none
+reason: tailscale-not-connected
+time: $(date -u +%FT%TZ)" error
+  exit 1
 fi
 
 # An unauthenticated POST to /mcp must return HTTP 401 over valid TLS.
@@ -200,13 +174,15 @@ check_public_https() {
 }
 
 if ! check_public_https; then
-  echo "::warning::HTTPS check failed on $TUNNEL (HTTP $code)"
-  if [ "$TUNNEL" = funnel ]; then
-    FUNNEL_DIAGNOSTIC="funnel-public-https-unreachable-http-$code"
-    if start_cloudflare && check_public_https; then
-      sudo tailscale funnel reset >/dev/null 2>&1 || true
-    fi
-  fi
+  FUNNEL_DIAGNOSTIC="funnel-public-https-unreachable-http-$code"
+  echo "::error::Tailscale Funnel HTTPS probe failed (HTTP $code); no fallback permitted"
+  publish "# Connector session
+state: error
+tunnel: none
+reason: $FUNNEL_DIAGNOSTIC
+public_check_without_token: HTTP $code (expected 401)
+time: $(date -u +%FT%TZ)" error
+  exit 1
 fi
 
 if [ "$code" != 401 ]; then
@@ -219,7 +195,7 @@ reason: HTTPS endpoint unavailable; inspect workflow logs and DNS/TLS
 time: $(date -u +%FT%TZ)" error
   exit 1
 fi
-# Publish only the endpoint that passed TLS and auth testing (including fallback).
+# Publish ONLY the Tailscale Funnel endpoint after TLS and auth testing.
 printf '%s\n' "$URL" > /tmp/public-url
 [ "$TUNNEL" = funnel ] && FUNNEL_DIAGNOSTIC="funnel-https-verified"
 printf 'funnel_diagnostic: %s\n' "$FUNNEL_DIAGNOSTIC" >> /tmp/ts-diag.log
@@ -279,12 +255,18 @@ $(tail -15 /tmp/auth.log)
   if ! kill -0 "$(cat /tmp/server.pid)" 2>/dev/null; then
     echo "Server died, restarting"; tail -20 /tmp/server.log; start_server
   fi
-  # Проверка дали тунелът още работи
-  if [ "$TUNNEL" = cloudflare ] && ! pgrep -f "cloudflared tunnel" >/dev/null; then
-    echo "::error::Tunnel stopped"; break
-  fi
-  if [ "$TUNNEL" = funnel ] && ! sudo tailscale funnel status 2>/dev/null | grep -q 8765; then
-    echo "Funnel lost, re-enabling"; timeout 60 sudo tailscale funnel --bg http://127.0.0.1:8765 || true
+  # Only Tailscale Funnel is allowed; avoid any silent change of HTTPS endpoint.
+  if ! sudo tailscale funnel status 2>/dev/null | grep -q 8765; then
+    echo "::warning::Funnel lost; attempting to restore the same HTTPS endpoint"
+    if ! timeout 60 sudo tailscale funnel --bg http://127.0.0.1:8765 >/tmp/tunnel.log 2>&1; then
+      echo "::error::Funnel restore failed"
+      publish "# Connector session
+state: error
+tunnel: none
+reason: funnel-lost
+time: $(date -u +%FT%TZ)" error
+      break
+    fi
   fi
 done
 
