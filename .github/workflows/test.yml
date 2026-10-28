@@ -9,12 +9,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Do not cancel a PR check when an unrelated main commit is pushed.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# CI must never publish test credentials or modify the repository.
+# This is a PUBLIC repository. Only allowlisted summaries may be uploaded.
+# Never print/upload raw SSH logs, tokens, credentials, or tunnel URLs.
 permissions:
   contents: read
 
@@ -30,17 +30,41 @@ jobs:
       - name: Install test requirements
         run: python -m pip install -r requirements.txt
       - name: Check SSH profile management
+        id: profiles
         run: python tests/test_profiles.py
       - name: Check Claude Code and Codex plugins (v1.3.0, 44 tools)
+        id: plugins
         run: python tests/test_plugins.py
       - name: Verify SSH, MCP and installation integration
+        id: integration
         shell: bash
+        env:
+          SSH_CONNECTOR_CI_REPORT: ${{ runner.temp }}/ssh-ci-report/integration.json
         run: |
-          # The network test logs may contain ephemeral authentication URLs.
-          # Keep them only on this disposable runner; do not upload or commit.
-          if python tests/test_connect.py > "$RUNNER_TEMP/connection-test.log" 2>&1; then
+          # Raw output is ephemeral on this runner and NEVER uploaded or committed.
+          mkdir -p "$RUNNER_TEMP/ssh-ci-report"
+          if python tests/test_connect.py > "$RUNNER_TEMP/ssh-raw-connection.log" 2>&1; then
             echo "SSH/MCP/integration tests passed."
           else
-            echo "::error::SSH/MCP/integration tests failed. Detailed logs are withheld to prevent credential exposure."
+            echo "::error::Integration failed. Read the sanitized Actions summary/artifact."
             exit 1
           fi
+      - name: Generate safe diagnostic logs
+        if: always()
+        env:
+          SSH_CI_REPORT_DIR: ${{ runner.temp }}/ssh-ci-report
+          SSH_CONNECTOR_CI_REPORT: ${{ runner.temp }}/ssh-ci-report/integration.json
+          SSH_CI_PROFILE_OUTCOME: ${{ steps.profiles.outcome }}
+          SSH_CI_PLUGIN_OUTCOME: ${{ steps.plugins.outcome }}
+          SSH_CI_INTEGRATION_OUTCOME: ${{ steps.integration.outcome }}
+        run: python scripts/ci_summary.py
+      - name: Attach sanitized test logs (7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-connector-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/ssh-ci-report/summary.json
+            ${{ runner.temp }}/ssh-ci-report/summary.md
+          retention-days: 7
+          if-no-files-found: warn
