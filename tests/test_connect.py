@@ -163,13 +163,13 @@ async def main():
     http = results.get("http mode", {})
     require(isinstance(http, dict) and http.get("no_token_status") == 401
             and http.get("wrong_token_status") == 401
-            and http.get("bearer_tools", 0) >= 44
-            and http.get("secret_path_tools", 0) >= 44
+            and http.get("bearer_tools", 0) >= 48
+            and http.get("secret_path_tools", 0) >= 48
             and http.get("bearer_call", {}).get("exit_code") == 0,
-            "HTTP auth/MCP (44 tools)")
+            "HTTP auth/MCP (48 tools)")
 
     plugin = results.get("plugin launcher", {})
-    require(isinstance(plugin, dict) and plugin.get("launcher_tools", 0) >= 44
+    require(isinstance(plugin, dict) and plugin.get("launcher_tools", 0) >= 48
             and plugin.get("launcher_call", {}).get("exit_code") == 0,
             "Claude/Codex plugin launcher")
 
@@ -188,7 +188,7 @@ async def main():
         "sftp_list": ("sftp_list /",),
         "sftp_read": ("sftp_read readme",),
         "sftp_manage": ("sftp_manage stat",),
-        "HTTP auth/MCP (44 tools)": ("http mode",),
+        "HTTP auth/MCP (48 tools)": ("http mode",),
         "Claude/Codex plugin launcher": ("plugin launcher",),
         "installer local-only": ("server installer (local-only)",),
     }
