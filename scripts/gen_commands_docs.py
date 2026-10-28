@@ -21,7 +21,7 @@ GROUPS = [
     ("Server profiles", "Сървърни профили",
      ["list_servers", "server_get", "server_add", "server_update", "server_rename", "server_set_primary",
       "server_failover", "server_test", "server_remove"]),
-    ("Credentials", "Данни за достъп", ["credentials_set", "credentials_rotate"]),
+    ("Credentials", "Данни за достъп", ["credentials_set", "credentials_rotate", "sudo_password"]),
     ("Session settings", "Настройки на сесията", ["session_configure"]),
     ("Tailscale", "Tailscale", ["tailscale_status", "tailscale_devices", "tailscale_keys", "tailscale_key_create",
                                 "tailscale_key_revoke"]),
