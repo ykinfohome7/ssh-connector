@@ -62,7 +62,7 @@ jobs:
           fi
       - name: Run connector session
         env:
-          HOURS: ${{ github.event.inputs.hours || '5' }}
+          HOURS: ${{ github.event.inputs.hours || '5.5' }}
           SSH_CONNECTOR_TOKEN: ${{ secrets.SSH_CONNECTOR_TOKEN }}
           SSH_CONNECTOR_SERVERS: ${{ secrets.SSH_CONNECTOR_SERVERS }}
           SSH_CONNECTOR_KEY: ${{ secrets.SSH_CONNECTOR_KEY }}
