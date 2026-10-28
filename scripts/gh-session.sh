@@ -20,7 +20,7 @@ publish() {  # write status file and push it without triggering other workflows
   git add "$STATUS"
   git commit -q -m "session status: $2 [skip ci]" || return 0
   for i in 1 2 3 4 5; do
-    git pull -q --rebase origin main && git push -q origin HEAD:main && return 0
+    timeout 60 git pull -q --rebase origin main && timeout 60 git push -q origin HEAD:main && return 0
     sleep 3
   done
 }
@@ -43,7 +43,8 @@ time: $(date -u +%FT%TZ)" error
 fi
 echo "::add-mask::$SSH_CONNECTOR_TOKEN"
 
-echo "Installing dependencies"
+step() { echo "[$(date -u +%H:%M:%S)] >>> $*"; }   # отметка в лога: кога и коя стъпка
+step "Installing dependencies"
 python3 -m venv /tmp/venv
 /tmp/venv/bin/pip install -q -r plugins/ssh-connector/requirements.txt
 
@@ -64,12 +65,37 @@ if [ -n "${SSH_CONNECTOR_KNOWN_HOSTS:-}" ]; then
 fi
 
 
+wait_port_free() {   # до 15 сек. чакаме стария процес да освободи порт 8765
+  for i in $(seq 1 15); do
+    curl -s -o /dev/null --max-time 2 http://127.0.0.1:8765/health || return 0
+    sleep 1
+  done
+  return 1
+}
+wait_server_up() {   # до 30 сек. чакаме сървъра да отговори „ok“
+  for i in $(seq 1 30); do
+    [ "$(curl -s --max-time 2 http://127.0.0.1:8765/health || true)" = ok ] && return 0
+    sleep 1
+  done
+  echo "::warning::server did not answer /health"; tail -20 /tmp/server.log || true
+  return 1
+}
+stop_server() {      # SIGTERM, а ако не спре за 5 сек. — SIGKILL
+  pid=$(cat /tmp/server.pid 2>/dev/null || true)
+  [ -n "$pid" ] || return 0
+  kill "$pid" 2>/dev/null || true
+  for i in $(seq 1 5); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+  kill -9 "$pid" 2>/dev/null || true
+  wait_port_free || true
+}
 start_server() {
   SSH_CONNECTOR_CONFIG="$CFG" SSH_CONNECTOR_AUTH_LOG=/tmp/auth.log SSH_CONNECTOR_PUBLIC_URL="${PUBLIC_URL:-}" nohup /tmp/venv/bin/python plugins/ssh-connector/server.py \
     --http --host 127.0.0.1 --port 8765 >> /tmp/server.log 2>&1 &
   echo $! > /tmp/server.pid
 }
+step "Starting connector (local)"
 start_server
+wait_server_up || true
 
 # --- Публичен HTTPS адрес / Public HTTPS address ---
 # 1) Tailscale Funnel: ПОСТОЯНЕН адрес https://ssh-connector.<tailnet>.ts.net (не се сменя при рестарт)
@@ -78,12 +104,13 @@ TUNNEL=""
 URL=""
 if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
   # Постоянно име на устройството -> постоянен адрес https://ssh-connector.<tailnet>.ts.net
-  sudo tailscale set --hostname=ssh-connector || true
+  step "Tailscale: hostname + certificate + funnel"
+  timeout 30 sudo tailscale set --hostname=ssh-connector || true
   # При край или спиране махаме устройството от мрежата, за да остане името свободно (без ssh-connector-1, -2 ...)
   trap 'sudo tailscale funnel reset >/dev/null 2>&1 || true; sudo tailscale logout >/dev/null 2>&1 || true' EXIT INT TERM
   sleep 5
   # Името на устройството в Tailscale (напр. ssh-connector.tail1234.ts.net), без крайната точка
-  TS_NAME=$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' || true)
+  TS_NAME=$(timeout 20 tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' || true)
   # Изрично издаваме HTTPS сертификата (Let's Encrypt), за да не чакаме първата заявка; резултатът отива в диагностиката
   if [ -n "$TS_NAME" ]; then
     if timeout 120 sudo tailscale cert --cert-file /tmp/ts.crt --key-file /tmp/ts.key "$TS_NAME" >/tmp/ts-cert.log 2>&1; then
@@ -102,8 +129,9 @@ if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; the
 fi
 
 if [ -z "$URL" ]; then
+  step "Fallback: trycloudflare tunnel"
   # Резервен вариант: временен тунел на Cloudflare
-  curl -fsSL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+  curl -fsSL --max-time 120 -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
   chmod +x /tmp/cloudflared
   nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8765 > /tmp/tunnel.log 2>&1 &
   for i in $(seq 1 60); do
@@ -116,22 +144,24 @@ if [ -z "$URL" ]; then
 fi
 
 # v1.3.2: рестарт на сървъра с публичния адрес, за да работят еднократните връзки за sudo паролата
-kill "$(cat /tmp/server.pid)" 2>/dev/null || true
-sleep 1
+step "Restarting connector with public URL"
+stop_server
 export PUBLIC_URL="$URL"   # остава и при автоматичен рестарт по-долу
 start_server
+wait_server_up || true
 
 # Проверка: без токен адресът трябва да връща 401 (защитен). Първият сертификат на Funnel може да отнеме до минута.
+step "Public check (expect 401)"
 code=000
 for i in $(seq 1 40); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/mcp" || true)
+  code=$(curl -s -o /dev/null --max-time 10 -w '%{http_code}' -X POST "$URL/mcp" || true)
   [ "$code" = 401 ] && break
   sleep 3
 done
 
 # Диагностика на Tailscale (без тайни): версия, сертификат, Funnel
 if [ "$TUNNEL" = funnel ]; then
-  { echo "tailscale: $(tailscale version | head -1)"; echo "funnel status:"; sudo tailscale funnel status 2>&1 | head -8; } >> /tmp/ts-diag.log
+  { echo "tailscale: $(timeout 10 tailscale version | head -1)"; echo "funnel status:"; timeout 10 sudo tailscale funnel status 2>&1 | head -8; } >> /tmp/ts-diag.log
 fi
 DIAG=$(cat /tmp/ts-diag.log 2>/dev/null || true)
 
@@ -156,6 +186,7 @@ Stop: put 'stop' in control/session. Restart: put 'start' plus anything new on l
 \`\`\`
 $DIAG
 \`\`\`"
+step "Publishing status"
 publish "$STATUS_BASE" running
 
 echo "Running until $END  ($URL)"
@@ -176,13 +207,13 @@ $(tail -15 /tmp/auth.log)
     fi
   fi
   if ! kill -0 "$(cat /tmp/server.pid)" 2>/dev/null; then
-    echo "Server died, restarting"; tail -20 /tmp/server.log; start_server
+    echo "Server died, restarting"; tail -20 /tmp/server.log; wait_port_free || true; start_server
   fi
   # Проверка дали тунелът още работи
   if [ "$TUNNEL" = cloudflare ] && ! pgrep -f "cloudflared tunnel" >/dev/null; then
     echo "::error::Tunnel stopped"; break
   fi
-  if [ "$TUNNEL" = funnel ] && ! sudo tailscale funnel status 2>/dev/null | grep -q 8765; then
+  if [ "$TUNNEL" = funnel ] && ! timeout 10 sudo tailscale funnel status 2>/dev/null | grep -q 8765; then
     echo "Funnel lost, re-enabling"; timeout 60 sudo tailscale funnel --bg http://127.0.0.1:8765 || true
   fi
 done
