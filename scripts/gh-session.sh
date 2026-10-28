@@ -71,28 +71,41 @@ start_server() {
 }
 start_server
 
+# Check local MCP health before advertising a public endpoint.
+local_ok=no
+for i in $(seq 1 20); do
+  if [ "$(curl -fsS --connect-timeout 2 --max-time 3 http://127.0.0.1:8765/health 2>/dev/null || true)" = "ok" ]; then
+    local_ok=yes
+    break
+  fi
+  sleep 1
+done
+if [ "$local_ok" != yes ]; then
+  echo "::error::Local MCP server did not pass /health"
+  tail -20 /tmp/server.log || true
+  publish "# Connector session
+state: error
+reason: local MCP server failed /health
+time: $(date -u +%FT%TZ)" error
+  exit 1
+fi
+
 # --- Публичен HTTPS адрес / Public HTTPS address ---
-# 1) Tailscale Funnel: ПОСТОЯНЕН адрес https://ssh-connector.<tailnet>.ts.net (не се сменя при рестарт)
+# 1) Tailscale Funnel: DNS URL belongs to this temporary runner, not a static IP
 # 2) Резерва: временен trycloudflare тунел (адресът се сменя при всеки рестарт)
 TUNNEL=""
 URL=""
 if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
-  # Постоянно име на устройството -> постоянен адрес https://ssh-connector.<tailnet>.ts.net
+  # Request a readable name but use the actual Tailscale DNSName.
   sudo tailscale set --hostname=ssh-connector || true
   # При край или спиране махаме устройството от мрежата, за да остане името свободно (без ssh-connector-1, -2 ...)
   trap 'sudo tailscale funnel reset >/dev/null 2>&1 || true; sudo tailscale logout >/dev/null 2>&1 || true' EXIT INT TERM
   sleep 5
   # Името на устройството в Tailscale (напр. ssh-connector.tail1234.ts.net), без крайната точка
   TS_NAME=$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' || true)
-  # Изрично издаваме HTTPS сертификата (Let's Encrypt), за да не чакаме първата заявка; резултатът отива в диагностиката
-  if [ -n "$TS_NAME" ]; then
-    if timeout 120 sudo tailscale cert --cert-file /tmp/ts.crt --key-file /tmp/ts.key "$TS_NAME" >/tmp/ts-cert.log 2>&1; then
-      echo "cert: OK" >> /tmp/ts-diag.log
-    else
-      { echo "cert: FAILED"; tail -3 /tmp/ts-cert.log; } >> /tmp/ts-diag.log
-    fi
-    sudo rm -f /tmp/ts.key /tmp/ts.crt   # ключа не го пазим на диска
-  fi
+  # Funnel manages its own HTTPS certificates; do not repeatedly request
+  # additional file-based certificates on ephemeral CI runners.
+  printf 'tailscale_dns_name: %s\n' "$TS_NAME" >> /tmp/ts-diag.log
   # Пускаме Funnel във фонов режим: публичен 443 -> локалния сървър на порт 8765
   if [ -n "$TS_NAME" ] && timeout 60 sudo tailscale funnel --bg http://127.0.0.1:8765 >/tmp/tunnel.log 2>&1; then
     URL="https://$TS_NAME"; TUNNEL=funnel
@@ -101,30 +114,81 @@ if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; the
   fi
 fi
 
-if [ -z "$URL" ]; then
-  # Резервен вариант: временен тунел на Cloudflare
-  curl -fsSL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-  chmod +x /tmp/cloudflared
-  nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8765 > /tmp/tunnel.log 2>&1 &
+# Fallback for a failed Funnel. This URL will be temporary.
+start_cloudflare() {
+  if [ ! -x /tmp/cloudflared ]; then
+    if ! curl -fsSL --retry 2 --max-time 45 -o /tmp/cloudflared \
+      https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64; then
+      echo "::warning::Unable to download Cloudflare tunnel binary"
+      return 1
+    fi
+    chmod +x /tmp/cloudflared
+  fi
+  nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8765 \
+    > /tmp/cloudflare-tunnel.log 2>&1 &
+  echo $! > /tmp/cloudflared.pid
+  local found=""
   for i in $(seq 1 60); do
-    URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/tunnel.log | head -1 || true)
-    [ -n "$URL" ] && break
+    found=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cloudflare-tunnel.log | head -1 || true)
+    if [ -n "$found" ]; then
+      URL="$found"
+      TUNNEL=cloudflare
+      return 0
+    fi
+    if ! kill -0 "$(cat /tmp/cloudflared.pid)" 2>/dev/null; then
+      break
+    fi
     sleep 2
   done
-  [ -n "$URL" ] || { echo "::error::Tunnel did not start"; cat /tmp/tunnel.log; exit 1; }
-  TUNNEL=cloudflare
+  echo "::warning::Cloudflare tunnel did not expose a URL"
+  return 1
+}
+
+if [ -z "$URL" ]; then
+  if ! start_cloudflare; then
+    publish "# Connector session
+state: error
+reason: neither Funnel nor Cloudflare tunnel started
+time: $(date -u +%FT%TZ)" error
+    exit 1
+  fi
 fi
 
-# v1.3.2: конекторът сам чете адреса оттук, когато потрябва (без рестарт)
-printf '%s\n' "$URL" > /tmp/public-url
+# An unauthenticated POST to /mcp must return HTTP 401 over valid TLS.
+# HTTP 000 means DNS, network, TLS or timeout failure, not success.
+check_public_https() {
+  code=000
+  for i in $(seq 1 40); do
+    code=$(curl -sS --connect-timeout 4 --max-time 8 -o /dev/null \
+      -w '%{http_code}' -X POST "$URL/mcp" 2>/tmp/public-check-error.log || true)
+    [ "$code" = 401 ] && return 0
+    sleep 3
+  done
+  return 1
+}
 
-# Проверка: без токен адресът трябва да връща 401 (защитен). Първият сертификат на Funnel може да отнеме до минута.
-code=000
-for i in $(seq 1 40); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/mcp" || true)
-  [ "$code" = 401 ] && break
-  sleep 3
-done
+if ! check_public_https; then
+  echo "::warning::HTTPS check failed on $TUNNEL (HTTP $code)"
+  if [ "$TUNNEL" = funnel ]; then
+    if start_cloudflare && check_public_https; then
+      sudo tailscale funnel reset >/dev/null 2>&1 || true
+    fi
+  fi
+fi
+
+if [ "$code" != 401 ]; then
+  echo "::error::No working authenticated public HTTPS endpoint (HTTP $code)"
+  publish "# Connector session
+state: error
+tunnel: $TUNNEL
+public_check_without_token: HTTP $code (expected 401)
+reason: HTTPS endpoint unavailable; inspect workflow logs and DNS/TLS
+time: $(date -u +%FT%TZ)" error
+  exit 1
+fi
+# Publish only the endpoint that passed TLS and auth testing (including fallback).
+printf '%s\n' "$URL" > /tmp/public-url
+printf 'https_probe: 401 (TLS verified, unauthenticated access blocked)\n' >> /tmp/ts-diag.log
 
 # Диагностика на Tailscale (без тайни): версия, сертификат, Funnel
 if [ "$TUNNEL" = funnel ]; then
@@ -137,11 +201,12 @@ END_TS=$(( $(date +%s) + $(awk "BEGIN{print int($HOURS*3600)}") ))
 END=$(date -u -d "@$END_TS" +%FT%TZ)
 STATUS_BASE="# Connector session
 state: running
-tunnel: $TUNNEL   (funnel = permanent URL / постоянен адрес)
+tunnel: $TUNNEL   (Funnel name is tied to this temporary runner)
 url: $URL
 claude_url: $URL/mcp   (header: Authorization = Bearer <SSH_CONNECTOR_TOKEN>)
 chatgpt_url: $URL/<SSH_CONNECTOR_TOKEN>/mcp
-public_check_without_token: HTTP $code (401 = protected, OK)
+public_check_without_token: HTTP $code (401 = protected, TLS verified)
+url_lifetime: temporary GitHub Actions runner; DNS name may change after restart
 servers: $SRC
 started: $START
 ends: $END
