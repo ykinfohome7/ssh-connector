@@ -1400,10 +1400,38 @@ async def get_events(since: float = 0, server: str = "", limit: int = 100) -> st
     return json.dumps(ev[-limit:], indent=2)
 
 
+# ---------------- GitHub Codespaces lifecycle (v1.3.3) ----------------
+# Uses the GitHub CLI identity on the connector host, not SSH/Tailscale or
+# tokens supplied as tool arguments. A stopped Codespace cannot wake itself
+# through an MCP backend running inside that same Codespace.
+import codespaces as _codespaces
+
+
+@mcp.tool()
+async def codespace_status(name: str = "") -> str:
+    """List all GitHub Codespaces available to this GitHub account, or one by exact name."""
+    return await _codespaces.status(name)
+
+
+@mcp.tool()
+async def codespace_start(name: str) -> str:
+    """Start/wake an existing Codespace via GitHub REST API (requires Codespaces permission)."""
+    return await _codespaces.start(name)
+
+
+@mcp.tool()
+async def codespace_stop(name: str, confirm: bool = False) -> str:
+    """Stop a Codespace only after explicit confirm=true; this may disconnect the MCP host."""
+    return await _codespaces.stop(name, confirm)
+
+
 # ---------------- help: всички команди, описание (BG/EN) и шаблон ----------------
 # Всеки шаблон е готов за пускане: сменяте само своите стойности.
 HELP = {
     "help": ("Списък с всички команди и примери", "List all commands with examples", {}),
+    "codespace_status": ("Показва всички GitHub Codespaces или един по точно име", "List GitHub Codespaces or inspect one by exact name", {"name": ""}),
+    "codespace_start": ("Стартира или събужда Codespace през GitHub API", "Start/wake an existing GitHub Codespace via GitHub API", {"name": "your-codespace-name"}),
+    "codespace_stop": ("Спира Codespace само след confirm=true", "Stop Codespace only after confirm=true", {"name": "your-codespace-name", "confirm": False}),
     "version_info": ("Версия, commit и команди", "Version, commit and commands", {}),
     "health_status": ("Здраве на конектора и връзките", "Connector and connection health", {}),
     "list_servers": ("Списък със сървърите", "List servers", {"tag": ""}),
