@@ -5,7 +5,7 @@
 **Work directly over SSH on many servers — from Claude and ChatGPT.**
 Commands, interactive terminals, SFTP, tunnels, failover, events and a safe `sudo` password — no gateway in between.
 
-[![Version](https://img.shields.io/badge/version-1.3.2-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.3.3-blue)](CHANGELOG.md)
 [![Tests](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml/badge.svg)](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/ykinfohome7/ssh-connector?style=social)](https://github.com/ykinfohome7/ssh-connector/stargazers)
@@ -30,7 +30,8 @@ Commands, interactive terminals, SFTP, tunnels, failover, events and a safe `sud
 | 👀 **Events** | Watch errors, crashes / OOM and logins without asking |
 | 🧩 **Groups & snippets** | Run one command on a whole group; saved commands |
 | 🌐 **Tailscale** | Status, devices, auth keys — and a permanent HTTPS address via Funnel |
-| 📖 **Help built in** | `help` lists all **45 commands** in BG and EN with a ready example |
+| 🧰 **GitHub Codespaces** | List/status, wake and confirmation-protected stop via authenticated GitHub CLI; requires Codespaces permission |
+| 📖 **Help built in** | `help` lists all **48 commands** in BG and EN with a ready example |
 
 ## 📦 Install
 
@@ -82,7 +83,13 @@ codex  mcp add ssh -- sh $(pwd)/plugins/ssh-connector/bin/run.sh     # Codex
 
 Full list with parameters and examples: **[docs/COMMANDS.md](docs/COMMANDS.md)**.
 
-## 🔑 sudo password (new in 1.3.2)
+## 🧰 GitHub Codespaces (new in 1.3.3)
+
+Three additional MCP tools: `codespace_status(name="")` lists available Codespaces or checks one; `codespace_start(name)` wakes an existing Codespace; `codespace_stop(name, confirm=true)` stops it only after explicit confirmation. They call the GitHub REST API through the authenticated `gh` CLI on the **connector host**, and need the GitHub `codespace` scope or the repository's Codespaces lifecycle admin permission. Tokens are not passed as tool arguments.
+
+**Important:** a backend running inside a stopped Codespace cannot wake itself. To wake an offline Codespace, call these commands from an independently running connector host (or use GitHub directly).
+
+## 🔑 sudo password (new in 1.3.3)
 
 When a command needs `sudo`, the connector does not hang — it asks you to choose:
 
