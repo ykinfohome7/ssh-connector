@@ -18,3 +18,8 @@ Stop: put 'stop' in control/session. Restart: put 'start' plus anything new on l
 tailscale_dns_name: ssh-connector.tail675f12.ts.net
 https_probe: 401 (TLS verified, unauthenticated access blocked)
 ```
+
+## Last incoming requests (UTC, no secrets)
+```
+{"ts": "15:01:34", "method": "POST", "path": "/mcp", "headers": ["accept", "accept-encoding", "cdn-loop", "cf-connecting-ip", "cf-ew-via", "cf-ipcountry", "cf-ray", "cf-visitor", "cf-warp-tag-id", "cf-worker", "connection", "content-length", "host", "user-agent", "x-forwarded-for", "x-forwarded-proto"], "cred_header": null, "cred_len": 0, "expected_len": 64, "result": "DENIED: no credential header"}
+```
