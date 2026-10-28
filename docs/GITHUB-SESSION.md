@@ -5,15 +5,15 @@
 
 The repository includes an on-demand GitHub Actions backend exposed over HTTPS through
 **Tailscale Funnel** at a **permanent** URL `https://ssh-connector.<tailnet>.ts.net`
-(fallback: a temporary Cloudflare quick tunnel if Tailscale is not configured).
+(no Cloudflare fallback; session fails closed if Funnel HTTPS is unavailable).
 > _Постоянен адрес през Tailscale Funnel; не се сменя при рестарт._
 
-The backend session is **temporary** (5 hours by default).
+The backend session is **temporary** (5.5 hours by default, limited to 6 hours per GitHub-hosted job).
 It is NOT the same as the BGDB Codespace itself.
 
 Default session host list: `config/github-session.yaml`. It keeps `rebex`
 and `failover` and adds `BGDB-Codespaces` (alias `github_bgdb`):
-`100.65.111.82:2222`, user `bgadmin`, Tailscale private route. SSH
+`100.98.41.79:2222`, user `bgadmin`, Tailscale private route. SSH
 port and IP must be rechecked after a Codespace rebuild or re-creation.
 
 To authenticate **without committing passwords or Tailscale credentials**,
@@ -28,7 +28,7 @@ configure the following *repository secrets*:
    without adding the password to `servers.yaml` or logs.
 3. `SSH_CONNECTOR_KNOWN_HOSTS`: **independently verified** SSH host public
    key line for the BGDB SSH daemon. For a nonstandard port the format is
-   `[100.65.111.82]:2222 ssh-ed25519 AAAA...`. Inspect the server's
+   `[100.98.41.79]:2222 ssh-ed25519 AAAA...`. Inspect the server's
    `/etc/ssh/ssh_host_ed25519_key.pub` and compare its fingerprint locally;
    do not blindly trust a network-supplied fingerprint.
 
@@ -41,8 +41,10 @@ editing `control/session`. The Tailscale action connects first, then the
 connector loads its hosts. Review `control/status.md` and the Actions logs.
 With Funnel the URL stays the same across restarts (requires HTTPS certificates
 and the `funnel` node attribute enabled in the tailnet, and `statedir` in the
-workflow's Tailscale step). Only the Cloudflare fallback changes URL on restart. Do not put a token
-in a publicly committed URL or support message.
+workflow's Tailscale step). Tailscale Funnel does not support a custom hostname such as `bgssh.abrdns.com` directly.
+For that hostname, deploy a separate trusted public HTTPS reverse proxy with a valid
+certificate to a persistent Debian MCP server. Do not put a token in a publicly
+committed URL or support message.
 
 The backend now exposes `server_add`, `server_update`, `server_remove`,
 `server_test`, and server-name aliases. Runtime profile modifications persist
