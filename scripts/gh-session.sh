@@ -100,6 +100,21 @@ fi
 # 2) Резерва: временен trycloudflare тунел (адресът се сменя при всеки рестарт)
 TUNNEL=""
 URL=""
+# Public status must contain diagnostics only, never raw tunnel output or secrets.
+FUNNEL_DIAGNOSTIC="tailscale-not-connected"
+classify_funnel_failure() {
+  if grep -Eqi 'TailscaleVarRoot|state directory|statedir' /tmp/tunnel.log 2>/dev/null; then
+    echo "tailscale-state-directory-error"
+  elif grep -Eqi 'nodeAttrs|permission|not allowed|access denied|not permitted|funnel.*(disabled|enable)' /tmp/tunnel.log 2>/dev/null; then
+    echo "funnel-policy-or-permission-denied"
+  elif grep -Eqi 'certificat|x509|let.s encrypt|acme' /tmp/tunnel.log 2>/dev/null; then
+    echo "funnel-https-certificate-error"
+  elif grep -Eqi 'timeout|deadline exceeded' /tmp/tunnel.log 2>/dev/null; then
+    echo "funnel-setup-timeout"
+  else
+    echo "funnel-cli-error-inspect-private-actions-log"
+  fi
+}
 if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
   # Request a readable name but use the actual Tailscale DNSName.
   sudo tailscale set --hostname=ssh-connector || true
@@ -114,8 +129,14 @@ if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; the
   # Пускаме Funnel във фонов режим: публичен 443 -> локалния сървър на порт 8765
   if [ -n "$TS_NAME" ] && timeout 60 sudo tailscale funnel --bg http://127.0.0.1:8765 >/tmp/tunnel.log 2>&1; then
     URL="https://$TS_NAME"; TUNNEL=funnel
+    FUNNEL_DIAGNOSTIC="funnel-cli-enabled"
   else
-    echo "::warning::Tailscale Funnel failed, falling back to trycloudflare"; cat /tmp/tunnel.log || true
+    if [ -z "$TS_NAME" ]; then
+      FUNNEL_DIAGNOSTIC="tailscale-dns-name-missing"
+    else
+      FUNNEL_DIAGNOSTIC="$(classify_funnel_failure)"
+    fi
+    echo "::warning::Tailscale Funnel unavailable ($FUNNEL_DIAGNOSTIC); using temporary Cloudflare tunnel"
   fi
 fi
 
@@ -175,6 +196,7 @@ check_public_https() {
 if ! check_public_https; then
   echo "::warning::HTTPS check failed on $TUNNEL (HTTP $code)"
   if [ "$TUNNEL" = funnel ]; then
+    FUNNEL_DIAGNOSTIC="funnel-public-https-unreachable-http-$code"
     if start_cloudflare && check_public_https; then
       sudo tailscale funnel reset >/dev/null 2>&1 || true
     fi
@@ -193,6 +215,10 @@ time: $(date -u +%FT%TZ)" error
 fi
 # Publish only the endpoint that passed TLS and auth testing (including fallback).
 printf '%s\n' "$URL" > /tmp/public-url
+[ "$TUNNEL" = funnel ] && FUNNEL_DIAGNOSTIC="funnel-https-verified"
+printf 'funnel_diagnostic: %s\n' "$FUNNEL_DIAGNOSTIC" >> /tmp/ts-diag.log
+printf 'bgdb_tailscale_ping: %s\n' "${BGDB_TAILSCALE_PING:-not-checked}" >> /tmp/ts-diag.log
+printf 'bgdb_ssh_port_2222: %s\n' "${BGDB_SSH_PORT:-not-checked}" >> /tmp/ts-diag.log
 printf 'https_probe: 401 (TLS verified, unauthenticated access blocked)\n' >> /tmp/ts-diag.log
 
 # Диагностика на Tailscale (без тайни): версия, сертификат, Funnel
@@ -211,8 +237,10 @@ url: $URL
 claude_url: $URL/mcp   (header: Authorization = Bearer <SSH_CONNECTOR_TOKEN>)
 chatgpt_url: $URL/<SSH_CONNECTOR_TOKEN>/mcp
 public_check_without_token: HTTP $code (401 = protected, TLS verified)
-url_lifetime: temporary GitHub Actions runner; DNS name may change after restart
+url_lifetime: temporary GitHub Actions runner; Funnel hostname can be stable only if its tailnet name is available and HTTPS works
+funnel_diagnostic: $FUNNEL_DIAGNOSTIC
 servers: $SRC
+source_commit: ${GITHUB_SHA:-unknown}
 started: $START
 ends: $END
 run: ${GITHUB_SERVER_URL:-}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}
