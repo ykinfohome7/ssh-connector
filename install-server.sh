@@ -47,6 +47,9 @@ id sshconn >/dev/null 2>&1 || useradd --system --create-home --home-dir "$DATA" 
 mkdir -p "$ETC" "$DATA/.ssh"
 chown -R sshconn: "$DATA"
 chmod 700 "$DATA/.ssh"
+if [ ! -e "$DATA/.ssh/known_hosts" ]; then
+  install -o sshconn -g sshconn -m 0600 /dev/null "$DATA/.ssh/known_hosts"
+fi
 if [ ! -f "$DATA/.ssh/id_ed25519" ]; then
   runuser -u sshconn -- ssh-keygen -q -t ed25519 -N "" -f "$DATA/.ssh/id_ed25519" -C "ssh-connector@$(hostname)"
 fi
@@ -56,29 +59,20 @@ if [ ! -f "$ETC/env" ]; then
 fi
 if [ ! -f "$ETC/servers.yaml" ]; then
   cat > "$ETC/servers.yaml" <<EOF
-# Your servers. After editing:  systemctl restart ssh-connector
+# Add only verified SSH hosts here. Never disable SSH host verification.
 defaults:
-  user: root
+  user: bgadmin
   key: $DATA/.ssh/id_ed25519
-  known_hosts: null        # host keys are not checked; set a known_hosts file to enable checking
+  known_hosts: $DATA/.ssh/known_hosts
   connect_timeout: 8
-  retries: 3
-servers:
-  this-server:
-    os: $( (command -v apt-get >/dev/null && echo debian) || echo redhat )
-    hosts: [127.0.0.1]
-    tags: [all]
-  # web1:
-  #   os: debian
-  #   hosts: [203.0.113.10, 198.51.100.10]   # primary, then fallback
-  #   tags: [all, web]
+  retries: 2
+servers: {}
 snippets:
   disk: df -h
   mem: free -m
-  failed: systemctl --failed --no-legend
-  top: ps aux --sort=-%cpu | head -15
 EOF
 fi
+
 chown root:sshconn "$ETC/servers.yaml"; chmod 640 "$ETC/servers.yaml"
 
 say "Installing Python dependencies (first time takes ~1 min)"
@@ -101,6 +95,11 @@ Environment=SSH_CONNECTOR_CONFIG=$ETC/servers.yaml
 ExecStart=/bin/sh $APP/plugins/ssh-connector/bin/run.sh --http --host 127.0.0.1 --port $PORT
 Restart=always
 RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
@@ -137,11 +136,9 @@ echo "========================================================="
 EOF
 chmod 755 /usr/local/bin/ssh-connector-info
 
-# Allow the connector to manage this server itself (key login as root from localhost).
-mkdir -p /root/.ssh && chmod 700 /root/.ssh
-grep -qF "$(cat "$DATA/.ssh/id_ed25519.pub")" /root/.ssh/authorized_keys 2>/dev/null \
-  || cat "$DATA/.ssh/id_ed25519.pub" >> /root/.ssh/authorized_keys
-chmod 600 /root/.ssh/authorized_keys
+# Never authorize remote shell access to root automatically.
+# Grant this connector's public key to a non-root target user only after
+# verifying the destination SSH host key and permitted Tailscale identity.
 
 systemctl daemon-reload
 systemctl enable --now ssh-connector >/dev/null 2>&1
