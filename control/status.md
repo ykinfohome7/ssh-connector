@@ -27,7 +27,6 @@ https://ssh-connector.tail675f12.ts.net (Funnel on)
 
 ## Last incoming requests (UTC, no secrets)
 ```
-{"ts": "00:47:15", "method": "GET", "path": "/robots.txt", "headers": ["accept", "accept-encoding", "host", "tailscale-funnel-request", "user-agent", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"], "cred_header": null, "cred_len": 0, "expected_len": 86, "result": "DENIED: no credential header"}
 {"ts": "00:47:15", "method": "GET", "path": "/", "headers": ["accept", "accept-encoding", "host", "tailscale-funnel-request", "user-agent", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"], "cred_header": null, "cred_len": 0, "expected_len": 86, "result": "DENIED: no credential header"}
 {"ts": "00:54:50", "method": "GET", "path": "/mcp", "headers": ["accept", "baggage", "host", "range", "tailscale-funnel-request", "traceparent", "user-agent", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"], "cred_header": null, "cred_len": 0, "expected_len": 86, "result": "DENIED: no credential header"}
 {"ts": "00:54:50", "method": "GET", "path": "/", "headers": ["accept", "baggage", "host", "range", "tailscale-funnel-request", "traceparent", "user-agent", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"], "cred_header": null, "cred_len": 0, "expected_len": 86, "result": "DENIED: no credential header"}
@@ -42,4 +41,5 @@ https://ssh-connector.tail675f12.ts.net (Funnel on)
 {"ts": "01:21:47", "method": "GET", "path": "/", "headers": ["accept", "baggage", "host", "range", "tailscale-funnel-request", "traceparent", "user-agent", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"], "cred_header": null, "cred_len": 0, "expected_len": 86, "result": "DENIED: no credential header"}
 {"ts": "01:21:47", "method": "GET", "path": "/", "headers": ["accept", "baggage", "host", "range", "tailscale-funnel-request", "traceparent", "user-agent", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"], "cred_header": null, "cred_len": 0, "expected_len": 86, "result": "DENIED: no credential header"}
 {"ts": "01:25:15", "method": "GET", "path": "/", "headers": ["accept", "baggage", "host", "range", "tailscale-funnel-request", "traceparent", "user-agent", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"], "cred_header": null, "cred_len": 0, "expected_len": 86, "result": "DENIED: no credential header"}
+{"ts": "01:48:23", "method": "GET", "path": "/", "headers": ["accept", "baggage", "host", "range", "tailscale-funnel-request", "traceparent", "user-agent", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"], "cred_header": null, "cred_len": 0, "expected_len": 86, "result": "DENIED: no credential header"}
 ```
