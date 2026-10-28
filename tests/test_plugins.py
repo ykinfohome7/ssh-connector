@@ -1,6 +1,6 @@
 """Plugin checks (no network): manifests agree with VERSION, and an installed plugin (only the
 plugins/ssh-connector folder, as Claude Code / Codex copy it) reports the right version and all commands.
-Проверка на плъгините: версиите съвпадат, а инсталиран плъгин (само неговата папка) показва 1.3.0 и всички команди."""
+Проверка на плъгините: версиите съвпадат, а инсталиран плъгин (само неговата папка) показва текущата версия и всички команди."""
 import json
 import os
 import pathlib
@@ -21,6 +21,10 @@ def main():
     for m in (ROOT / ".claude-plugin" / "marketplace.json", ROOT / ".agents" / "plugins" / "marketplace.json",
               PLUGIN / "codex-mcp.json"):
         json.loads(m.read_text())                                           # валиден JSON
+    # Codex/ChatGPT вижда командите само ако сървърите са под ключа "mcpServers"
+    codex_mcp = json.loads((PLUGIN / "codex-mcp.json").read_text())
+    assert "ssh" in codex_mcp.get("mcpServers", {}), "codex-mcp.json must wrap servers in \"mcpServers\""
+    assert codex_mcp["mcpServers"]["ssh"].get("cwd") == ".", "codex-mcp.json: cwd must be the plugin root"
 
     with tempfile.TemporaryDirectory() as d:
         # копираме само папката на плъгина — както я инсталира Claude Code / Codex
