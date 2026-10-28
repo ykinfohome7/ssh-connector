@@ -29,7 +29,23 @@ import yaml
 from mcp.server.fastmcp import FastMCP
 
 CONFIG_PATH = os.environ.get("SSH_CONNECTOR_CONFIG", str(Path(__file__).with_name("servers.yaml")))
-APP_VERSION = (Path(__file__).resolve().parents[2] / "VERSION").read_text().strip() if (Path(__file__).resolve().parents[2] / "VERSION").exists() else "dev"
+
+
+def _read_version():
+    """Версията от plugin.json (вътре в плъгина, работи и при инсталиран плъгин), иначе от файла VERSION."""
+    here = Path(__file__).resolve().parent
+    for manifest in (here / ".claude-plugin" / "plugin.json", here / ".codex-plugin" / "plugin.json"):
+        try:
+            return json.loads(manifest.read_text())["version"]
+        except (OSError, ValueError, KeyError):
+            continue
+    for f in (here / "VERSION", here.parent.parent / "VERSION"):
+        if f.is_file():
+            return f.read_text().strip()
+    return "dev"
+
+
+APP_VERSION = _read_version()
 mcp = FastMCP("ssh-connector")
 try:  # allow access through a tunnel / reverse proxy (Host header is the public domain); auth is enforced below
     from mcp.server.transport_security import TransportSecuritySettings
