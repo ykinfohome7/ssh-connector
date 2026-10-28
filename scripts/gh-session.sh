@@ -8,7 +8,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-HOURS="${HOURS:-5}"
+HOURS="${HOURS:-5.5}"
+# A GitHub-hosted job cannot safely provide 10 hours continuously:
+# use a fresh session for additional time (the platform limit is 6 hours/job).
+if ! awk -v hours="$HOURS" 'BEGIN { exit !(hours > 0 && hours <= 5.5) }'; then
+  echo "::error::HOURS must be greater than 0 and no more than 5.5 for this GitHub-hosted runner."
+  exit 1
+fi
 STATUS=control/status.md
 CMD="$(awk 'NR==1{print $1}' control/session 2>/dev/null || true)"
 CMD="${CMD:-start}"
