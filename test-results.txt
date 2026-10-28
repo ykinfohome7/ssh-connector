@@ -1,7 +1,7 @@
 Host canonicalization disabled
 Opening SSH connection to test.rebex.net, port 22
 [conn=0] Connected to SSH server at test.rebex.net, port 22
-[conn=0]   Local address: 10.1.0.219, port 47936
+[conn=0]   Local address: 10.1.0.238, port 51262
 [conn=0]   Peer address: 194.108.117.16, port 22
 [conn=0] Beginning auth for user demo
 [conn=0] Auth for user demo succeeded
@@ -15,7 +15,7 @@ Opening SSH connection to 10.255.255.1, port 22
 Host canonicalization disabled
 Opening SSH connection to test.rebex.net, port 22
 [conn=1] Connected to SSH server at test.rebex.net, port 22
-[conn=1]   Local address: 10.1.0.219, port 33766
+[conn=1]   Local address: 10.1.0.238, port 51276
 [conn=1]   Peer address: 194.108.117.16, port 22
 [conn=1] Beginning auth for user demo
 [conn=1] Auth for user demo succeeded
@@ -66,34 +66,34 @@ Opening SSH connection to test.rebex.net, port 22
 [conn=0, chan=6] Received exit status 0
 [conn=0, chan=6] Received channel close
 [conn=0, chan=6] Channel closed
-INFO:     Started server process [2423]
+INFO:     Started server process [2158]
 INFO:     Waiting for application startup.
 StreamableHTTP session manager started
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8799 (Press CTRL+C to quit)
-INFO:     127.0.0.1:59824 - "POST /mcp HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49392 - "POST /mcp HTTP/1.1" 401 Unauthorized
 HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 401 Unauthorized"
-INFO:     127.0.0.1:59824 - "POST /mcp HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49392 - "POST /mcp HTTP/1.1" 401 Unauthorized
 HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 401 Unauthorized"
-Created new transport with session ID: 7e8346fce5a14da58218c3da2b6cbbee
-INFO:     127.0.0.1:59830 - "POST /mcp HTTP/1.1" 200 OK
+Created new transport with session ID: b3c3a5ed3d8049e695866f4536a43f65
+INFO:     127.0.0.1:49408 - "POST /mcp HTTP/1.1" 200 OK
 HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 200 OK"
-Received session ID: 7e8346fce5a14da58218c3da2b6cbbee
+Received session ID: b3c3a5ed3d8049e695866f4536a43f65
 Negotiated protocol version: 2025-11-25
-INFO:     127.0.0.1:59844 - "POST /mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:49420 - "POST /mcp HTTP/1.1" 202 Accepted
 HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 202 Accepted"
-INFO:     127.0.0.1:59860 - "GET /mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49432 - "GET /mcp HTTP/1.1" 200 OK
 HTTP Request: GET http://127.0.0.1:8799/mcp "HTTP/1.1 200 OK"
-INFO:     127.0.0.1:59866 - "POST /mcp HTTP/1.1" 200 OK
-HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:49436 - "POST /mcp HTTP/1.1" 200 OK
 Processing request of type ListToolsRequest
-INFO:     127.0.0.1:59872 - "POST /mcp HTTP/1.1" 200 OK
+HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:49438 - "POST /mcp HTTP/1.1" 200 OK
 HTTP Request: POST http://127.0.0.1:8799/mcp "HTTP/1.1 200 OK"
 Processing request of type CallToolRequest
 Host canonicalization disabled
 Opening SSH connection to test.rebex.net, port 22
 [conn=0] Connected to SSH server at test.rebex.net, port 22
-[conn=0]   Local address: 10.1.0.219, port 47812
+[conn=0]   Local address: 10.1.0.238, port 34424
 [conn=0]   Peer address: 194.108.117.16, port 22
 [conn=0] Beginning auth for user demo
 [conn=0] Auth for user demo succeeded
@@ -102,36 +102,36 @@ Opening SSH connection to test.rebex.net, port 22
 [conn=0, chan=0] Received exit status 0
 [conn=0, chan=0] Received channel close
 [conn=0, chan=0] Channel closed
-Terminating session: 7e8346fce5a14da58218c3da2b6cbbee
-INFO:     127.0.0.1:59878 - "DELETE /mcp HTTP/1.1" 200 OK
+Terminating session: b3c3a5ed3d8049e695866f4536a43f65
+INFO:     127.0.0.1:49452 - "DELETE /mcp HTTP/1.1" 200 OK
 HTTP Request: DELETE http://127.0.0.1:8799/mcp "HTTP/1.1 200 OK"
-Created new transport with session ID: 1ec1727bcb9e49bda9f3c120398b7f50
-INFO:     127.0.0.1:59886 - "POST /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
+Created new transport with session ID: 6dcb1dd972134d34902065450dfe093a
+INFO:     127.0.0.1:49462 - "POST /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
 HTTP Request: POST http://127.0.0.1:8799/TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp "HTTP/1.1 200 OK"
-Received session ID: 1ec1727bcb9e49bda9f3c120398b7f50
+Received session ID: 6dcb1dd972134d34902065450dfe093a
 Negotiated protocol version: 2025-11-25
-INFO:     127.0.0.1:59894 - "POST /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:49474 - "POST /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 202 Accepted
 HTTP Request: POST http://127.0.0.1:8799/TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp "HTTP/1.1 202 Accepted"
-INFO:     127.0.0.1:59900 - "GET /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49488 - "GET /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
 HTTP Request: GET http://127.0.0.1:8799/TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp "HTTP/1.1 200 OK"
-INFO:     127.0.0.1:59902 - "POST /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49492 - "POST /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
 HTTP Request: POST http://127.0.0.1:8799/TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp "HTTP/1.1 200 OK"
 Processing request of type ListToolsRequest
-Terminating session: 1ec1727bcb9e49bda9f3c120398b7f50
-INFO:     127.0.0.1:59916 - "DELETE /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
+Terminating session: 6dcb1dd972134d34902065450dfe093a
+INFO:     127.0.0.1:49500 - "DELETE /TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp HTTP/1.1" 200 OK
 HTTP Request: DELETE http://127.0.0.1:8799/TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT/mcp "HTTP/1.1 200 OK"
 ssh-connector: installing dependencies into /tmp/sshconn-plugin-data/venv ...
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 StreamableHTTP session manager shutting down
 INFO:     Application shutdown complete.
-INFO:     Finished server process [2423]
+INFO:     Finished server process [2158]
 Processing request of type ListToolsRequest
 Processing request of type CallToolRequest
 Host canonicalization disabled
 Opening SSH connection to test.rebex.net, port 22
 [conn=0] Connected to SSH server at test.rebex.net, port 22
-[conn=0]   Local address: 10.1.0.219, port 45366
+[conn=0]   Local address: 10.1.0.238, port 48226
 [conn=0]   Peer address: 194.108.117.16, port 22
 [conn=0] Beginning auth for user demo
 [conn=0] Auth for user demo succeeded
@@ -141,25 +141,25 @@ Opening SSH connection to test.rebex.net, port 22
 [conn=0, chan=0] Received channel close
 [conn=0, chan=0] Channel closed
 HTTP Request: POST http://127.0.0.1:8765/mcp "HTTP/1.1 200 OK"
-Received session ID: 565a55ea1bcd43b98d5b240e557380f1
+Received session ID: 2137b4add36f43ee8dc0faed5bb23a21
 Negotiated protocol version: 2025-11-25
 HTTP Request: POST http://127.0.0.1:8765/mcp "HTTP/1.1 202 Accepted"
 HTTP Request: GET http://127.0.0.1:8765/mcp "HTTP/1.1 200 OK"
 HTTP Request: POST http://127.0.0.1:8765/mcp "HTTP/1.1 200 OK"
 HTTP Request: POST http://127.0.0.1:8765/mcp "HTTP/1.1 200 OK"
 HTTP Request: DELETE http://127.0.0.1:8765/mcp "HTTP/1.1 200 OK"
-HTTP Request: POST https://hourly-facilities-receptors-biz.trycloudflare.com/mcp "HTTP/1.1 401 Unauthorized"
-HTTP Request: POST https://hourly-facilities-receptors-biz.trycloudflare.com/OsIX1f4MmjF0cAW49oU-PgVB41Uf6d7aQzgwTwX6Y4E/mcp "HTTP/1.1 200 OK"
-Received session ID: 2de25791fa5c4fabb6f7375cb48d3b33
+HTTP Request: POST https://houses-workers-lower-september.trycloudflare.com/mcp "HTTP/1.1 401 Unauthorized"
+HTTP Request: POST https://houses-workers-lower-september.trycloudflare.com/06kx13oZN-8XwW9DR8A1rIRgBXioE90nnetpczDTxMU/mcp "HTTP/1.1 200 OK"
+Received session ID: 384aee1dc2784f0aa806f6212e7102b8
 Negotiated protocol version: 2025-11-25
-HTTP Request: POST https://hourly-facilities-receptors-biz.trycloudflare.com/OsIX1f4MmjF0cAW49oU-PgVB41Uf6d7aQzgwTwX6Y4E/mcp "HTTP/1.1 202 Accepted"
-HTTP Request: POST https://hourly-facilities-receptors-biz.trycloudflare.com/OsIX1f4MmjF0cAW49oU-PgVB41Uf6d7aQzgwTwX6Y4E/mcp "HTTP/1.1 200 OK"
-HTTP Request: POST https://hourly-facilities-receptors-biz.trycloudflare.com/OsIX1f4MmjF0cAW49oU-PgVB41Uf6d7aQzgwTwX6Y4E/mcp "HTTP/1.1 200 OK"
-HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/OsIX1f4MmjF0cAW49oU-PgVB41Uf6d7aQzgwTwX6Y4E/mcp "HTTP/1.1 200 OK"
+HTTP Request: POST https://houses-workers-lower-september.trycloudflare.com/06kx13oZN-8XwW9DR8A1rIRgBXioE90nnetpczDTxMU/mcp "HTTP/1.1 202 Accepted"
+HTTP Request: POST https://houses-workers-lower-september.trycloudflare.com/06kx13oZN-8XwW9DR8A1rIRgBXioE90nnetpczDTxMU/mcp "HTTP/1.1 200 OK"
+HTTP Request: POST https://houses-workers-lower-september.trycloudflare.com/06kx13oZN-8XwW9DR8A1rIRgBXioE90nnetpczDTxMU/mcp "HTTP/1.1 200 OK"
+HTTP Request: DELETE https://houses-workers-lower-september.trycloudflare.com/06kx13oZN-8XwW9DR8A1rIRgBXioE90nnetpczDTxMU/mcp "HTTP/1.1 200 OK"
 [
   {
     "test": "run_command rebex",
-    "seconds": 1.5,
+    "seconds": 2.2,
     "result": {
       "server": "rebex",
       "host": "test.rebex.net",
@@ -181,7 +181,7 @@ HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/O
   },
   {
     "test": "run_on_group demo",
-    "seconds": 0.2,
+    "seconds": 0.3,
     "result": [
       {
         "server": "rebex",
@@ -201,7 +201,7 @@ HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/O
   },
   {
     "test": "run_snippet",
-    "seconds": 0.2,
+    "seconds": 0.3,
     "result": {
       "server": "rebex",
       "host": "test.rebex.net",
@@ -212,7 +212,7 @@ HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/O
   },
   {
     "test": "sftp_list /",
-    "seconds": 1.0,
+    "seconds": 1.3,
     "result": [
       {
         "name": "pub",
@@ -232,7 +232,7 @@ HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/O
   },
   {
     "test": "sftp_read readme",
-    "seconds": 0.8,
+    "seconds": 1.2,
     "result": {
       "path": "/readme.txt",
       "content": "Welcome to test.rebex.net!\r\n\r\nYou are connected to an FTP or SFTP server used for testing purposes\r\nby Rebex FTP/SSL or Rebex SFTP sample code. Only read access is allowed.\r\n\r\nFor information about Rebex FTP/SSL, Rebex SFTP and other Rebex libraries\r\nfor .NET, please visit our website at https://www",
@@ -241,7 +241,7 @@ HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/O
   },
   {
     "test": "sftp_manage stat",
-    "seconds": 0.6,
+    "seconds": 0.8,
     "result": {
       "path": "/readme.txt",
       "size": 379,
@@ -253,17 +253,17 @@ HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/O
   },
   {
     "test": "shell_open",
-    "seconds": 1.0,
+    "seconds": 1.1,
     "result": {
-      "shell_id": "e5db0882",
+      "shell_id": "31e2d437",
       "output": "For a list of supported commands, type 'help'.\r\ndemo@test:/$ "
     }
   },
   {
     "test": "shell_send pwd",
-    "seconds": 0.7,
+    "seconds": 0.8,
     "result": {
-      "shell_id": "e5db0882",
+      "shell_id": "31e2d437",
       "output": "pwd\r\n/\r\ndemo@test:/$ ",
       "closed": false
     }
@@ -280,37 +280,37 @@ HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/O
     "seconds": 0.0,
     "result": [
       {
-        "ts": 1793144352.6378036,
+        "ts": 1793149434.0351403,
         "server": "rebex",
         "command": "ls",
         "exit_code": 0
       },
       {
-        "ts": 1793144359.009047,
+        "ts": 1793149440.4383285,
         "server": "failover",
         "command": "ls",
         "exit_code": 0
       },
       {
-        "ts": 1793144359.2335193,
+        "ts": 1793149440.7491152,
         "server": "failover",
         "command": "pwd",
         "exit_code": 0
       },
       {
-        "ts": 1793144359.2476904,
+        "ts": 1793149440.7709174,
         "server": "rebex",
         "command": "pwd",
         "exit_code": 0
       },
       {
-        "ts": 1793144359.4870503,
+        "ts": 1793149441.1040318,
         "server": "rebex",
         "command": "ls",
         "exit_code": 0
       },
       {
-        "ts": 1793144363.5510414,
+        "ts": 1793149446.2963278,
         "server": "rebex",
         "command": "[shell] pwd",
         "exit_code": null
@@ -354,11 +354,11 @@ HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/O
   },
   {
     "test": "http mode",
-    "seconds": 6.5,
+    "seconds": 7.1,
     "result": {
       "no_token_status": 401,
       "wrong_token_status": 401,
-      "bearer_tools": 30,
+      "bearer_tools": 44,
       "bearer_call": {
         "server": "rebex",
         "host": "test.rebex.net",
@@ -366,12 +366,12 @@ HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/O
         "stdout": "pub\nreadme.txt\n",
         "stderr": ""
       },
-      "secret_path_tools": 30
+      "secret_path_tools": 44
     }
   },
   {
     "test": "plugin launcher",
-    "seconds": 10.3,
+    "seconds": 9.4,
     "result": {
       "manifests": {
         ".claude-plugin/marketplace.json": "valid json",
@@ -380,7 +380,7 @@ HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/O
         "plugins/ssh-connector/.codex-plugin/plugin.json": "valid json",
         "plugins/ssh-connector/codex-mcp.json": "valid json"
       },
-      "launcher_tools": 30,
+      "launcher_tools": 44,
       "launcher_call": {
         "server": "rebex",
         "host": "test.rebex.net",
@@ -392,10 +392,10 @@ HTTP Request: DELETE https://hourly-facilities-receptors-biz.trycloudflare.com/O
   },
   {
     "test": "server installer + public tunnel",
-    "seconds": 62.7,
+    "seconds": 132.8,
     "result": {
       "installer_exit": 0,
-      "installer_tail": "gs > Apps & Connectors > Advanced > Developer mode > Create)\n  URL:            https://<your-public-address>/OsIX1f4MmjF0cAW49oU-PgVB41Uf6d7aQzgwTwX6Y4E/mcp\n  Authentication: No authentication\n\nAdd this public key to ~/.ssh/authorized_keys on every server you want to reach:\nssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPJsOhOWMXrkepNaRZ2/aJYrgznYkekm0kKOUnxXoDb8 ssh-connector@runnervmtai0g\n\nServer list: /etc/ssh-connector/servers.yaml   then: systemctl restart ssh-connector\nKeep the token secret. Anyone with it can run commands on your servers.\n=========================================================\n\nRunning kernel seems to be up-to-date.\n\nRestarting services...\n systemctl restart packagekit.service php8.3-fpm.service\n\nNo containers need to be restarted.\n\nNo user sessions are running outdated binaries.\n\nNo VM guests are running outdated hypervisor (qemu) binaries on this host.\nssh-connector: installing dependencies into /var/lib/ssh-connector/venv ...\n",
+      "installer_tail": "gs > Apps & Connectors > Advanced > Developer mode > Create)\n  URL:            https://<your-public-address>/06kx13oZN-8XwW9DR8A1rIRgBXioE90nnetpczDTxMU/mcp\n  Authentication: No authentication\n\nAdd this public key to ~/.ssh/authorized_keys on every server you want to reach:\nssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHqkLIMeF4tOKXEZzAvkYL+vKHkjQrGjRKmy8EkC/SYK ssh-connector@runnervm48cm3\n\nServer list: /etc/ssh-connector/servers.yaml   then: systemctl restart ssh-connector\nKeep the token secret. Anyone with it can run commands on your servers.\n=========================================================\nssh-connector: installing dependencies into /var/lib/ssh-connector/venv ...\n",
       "service": "active",
       "tunnel_service": "active",
       "public_url_found": true,
