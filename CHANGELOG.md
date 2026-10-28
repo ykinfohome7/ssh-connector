@@ -3,6 +3,17 @@
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 > _Всички по-важни промени. Най-новото е най-горе._
 
+## [1.3.3] — 2026-10-28
+### Added / Добавено
+- Three MCP tools (48 total): `codespace_status` (all or exact name), `codespace_start` (wake via GitHub API), and `codespace_stop` (requires `confirm=true`).
+- GitHub Codespaces lifecycle actions use the authenticated `gh` CLI and require the account's `codespace` scope / Codespaces lifecycle admin repository permission.
+- Offline tests for safe name validation, list/start and refusal to stop without confirmation.
+### Security / Сигурност
+- Never accept GitHub tokens as tool parameters; invoke CLI with explicit arguments and no shell.
+- Stop can disconnect a connector hosted inside the same Codespace; an offline Codespace cannot wake its own MCP backend.
+### Docs / Документация
+- Updated BG/EN README, command generator, references and plugin manifests to 1.3.3.
+
 ## [1.3.2] — 2026-10-28
 ### Added / Добавено
 - `sudo_password` (45th command): choose how the sudo password is provided — `prompt` (one-time HTTPS page), `profile` (preset from an environment variable / secret) or `generate` (your length 16–128 and character set). Never in chat, command, logs or history.
