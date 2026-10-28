@@ -1,7 +1,7 @@
 {
   "name": "ssh-connector",
-  "version": "1.3.1",
-  "description": "Work directly over SSH on many Debian and Red Hat servers: commands, groups, snippets, interactive shells, SFTP, tunnels, jump hosts, failover, event watching, server profiles, SSH key rotation and Tailscale (44 commands, help in BG/EN).",
+  "version": "1.3.2",
+  "description": "Work directly over SSH on many Debian and Red Hat servers: commands, groups, snippets, interactive shells, SFTP, tunnels, jump hosts, failover, event watching, server profiles, SSH key rotation and Tailscale, sudo password (45 commands, help in BG/EN).",
   "author": {
     "name": "ykinfohome7"
   },
