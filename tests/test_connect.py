@@ -95,7 +95,7 @@ async def installer_check():
     info = sh("sudo", "/usr/local/bin/ssh-connector-info").stdout
     m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", info)
     url = m.group(0) if m else None
-    out = {"installer_exit": inst.returncode, "installer_tail": inst.stdout[-600:] + inst.stderr[-600:],
+    out = {"installer_exit": inst.returncode,
            "service": sh("systemctl", "is-active", "ssh-connector").stdout.strip(),
            "tunnel_service": sh("systemctl", "is-active", "ssh-connector-tunnel").stdout.strip(),
            "public_url_found": bool(url)}
@@ -145,7 +145,69 @@ async def main():
     out.append(await step("http mode", http_check()))
     out.append(await step("plugin launcher", plugin_check()))
     out.append(await step("server installer + public tunnel", installer_check()))
-    print(json.dumps(out, indent=2, ensure_ascii=False))
+    # Fail CI on returned errors as well as raised exceptions. Do not print raw
+    # results: install logs / HTTP clients may contain credential-bearing URLs.
+    problems = []
+
+    def require(condition, message):
+        if not condition:
+            problems.append(message)
+
+    results = {item["test"]: item["result"] for item in out}
+    commands = ("run_command rebex", "failover", "run_snippet")
+    for name in commands:
+        r = results.get(name)
+        require(isinstance(r, dict) and r.get("exit_code") == 0, name)
+
+    group = results.get("run_on_group demo")
+    require(isinstance(group, list) and len(group) >= 2
+            and all(isinstance(r, dict) and r.get("exit_code") == 0 for r in group),
+            "run_on_group demo")
+
+    for item in out:
+        if isinstance(item["result"], dict) and "error" in item["result"]:
+            problems.append(item["test"])
+    require(isinstance(results.get("shell_open"), dict)
+            and bool(results["shell_open"].get("shell_id")), "shell_open")
+    require("shell_send pwd" in results and "shell_close" in results,
+            "shell lifecycle")
+    require(isinstance(results.get("sftp_list /"), list), "sftp_list")
+    require(isinstance(results.get("sftp_read readme"), dict)
+            and "content" in results["sftp_read readme"], "sftp_read")
+    require(isinstance(results.get("sftp_manage stat"), dict)
+            and "size" in results["sftp_manage stat"], "sftp_manage")
+
+    http = results.get("http mode", {})
+    require(isinstance(http, dict) and http.get("no_token_status") == 401
+            and http.get("wrong_token_status") == 401
+            and http.get("bearer_tools", 0) >= 44
+            and http.get("secret_path_tools", 0) >= 44
+            and http.get("bearer_call", {}).get("exit_code") == 0,
+            "HTTP auth/MCP (44 tools)")
+
+    plugin = results.get("plugin launcher", {})
+    require(isinstance(plugin, dict) and plugin.get("launcher_tools", 0) >= 44
+            and plugin.get("launcher_call", {}).get("exit_code") == 0,
+            "Claude/Codex plugin launcher")
+
+    install = results.get("server installer + public tunnel", {})
+    require(isinstance(install, dict) and install.get("installer_exit") == 0
+            and install.get("service") == "active"
+            and install.get("tunnel_service") == "active"
+            and install.get("public_url_found") is True
+            and install.get("public_without_token") == 401
+            and install.get("local_call", {}).get("exit_code") == 0
+            and install.get("public_chatgpt_style_call", {}).get("exit_code") == 0,
+            "installer + public tunnel")
+
+    # Only safe metadata is printed; no tokens, host credentials, URLs, or logs.
+    failed = set(problems)
+    print(json.dumps([{"test": item["test"], "seconds": item["seconds"],
+                       "passed": item["test"] not in failed}
+                      for item in out], indent=2, ensure_ascii=False))
+    if failed:
+        print("Integration checks failed: " + ", ".join(sorted(failed)), file=sys.stderr)
+        raise SystemExit(1)
 
 
 asyncio.run(main())
