@@ -1,26 +1,20 @@
 # Connector session
 state: running
-tunnel: funnel   (funnel = permanent URL / постоянен адрес)
-url: https://ssh-connector.tail675f12.ts.net
-claude_url: https://ssh-connector.tail675f12.ts.net/mcp   (header: Authorization = Bearer <SSH_CONNECTOR_TOKEN>)
-chatgpt_url: https://ssh-connector.tail675f12.ts.net/<SSH_CONNECTOR_TOKEN>/mcp
-public_check_without_token: HTTP 000 (401 = protected, OK)
+tunnel: cloudflare   (Funnel name is tied to this temporary runner)
+url: https://programs-commander-phi-row.trycloudflare.com
+claude_url: https://programs-commander-phi-row.trycloudflare.com/mcp   (header: Authorization = Bearer <SSH_CONNECTOR_TOKEN>)
+chatgpt_url: https://programs-commander-phi-row.trycloudflare.com/<SSH_CONNECTOR_TOKEN>/mcp
+public_check_without_token: HTTP 401 (401 = protected, TLS verified)
+url_lifetime: temporary GitHub Actions runner; DNS name may change after restart
 servers: GitHub session profile (BGDB + demo)
-started: 2026-10-28T08:53:30Z
-ends: 2026-10-28T13:53:30Z
-run: https://github.com/ykinfohome7/ssh-connector/actions/runs/40654443191
+started: 2026-10-28T13:06:41Z
+ends: 2026-10-28T18:06:41Z
+run: https://github.com/ykinfohome7/ssh-connector/actions/runs/40692535025
 
 Stop: put 'stop' in control/session. Restart: put 'start' plus anything new on line 2.
 
 ## Tailscale diagnostics
 ```
-cert: FAILED
-tailscale: 1.104.2
-funnel status:
-
-# Funnel on:
-#     - https://ssh-connector.tail675f12.ts.net
-
-https://ssh-connector.tail675f12.ts.net (Funnel on)
-|-- / proxy http://127.0.0.1:8765
+tailscale_dns_name: ssh-connector.tail675f12.ts.net
+https_probe: 401 (TLS verified, unauthenticated access blocked)
 ```
