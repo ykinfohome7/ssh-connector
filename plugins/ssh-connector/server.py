@@ -469,6 +469,133 @@ async def server_failover(name: str) -> str:
         return _err(e, name=name)
 
 
+# ---------------- v1.3: данни за достъп / credentials ----------------
+# Правила: никога не връщаме пароли, ключове или токени; пазим само имена на променливи и пътища.
+# Ed25519 по подразбиране, RSA 4096 само за стари системи; смяна на ключа на 40-90 дни.
+KEY_DIR = Path(os.path.expanduser(os.environ.get("SSH_CONNECTOR_KEY_DIR", "~/.ssh/ssh-connector")))
+ROTATE_MIN_DAYS, ROTATE_MAX_DAYS = 40, 90
+
+
+def _key_age_days(cfg):
+    """Възраст на ключа в дни (от key_created в профила) или None, ако не е известна."""
+    created = cfg.get("key_created")
+    return None if not created else int((time.time() - float(created)) // 86400)
+
+
+@mcp.tool()
+async def credentials_set(name: str, password_env: str = "", key_path: str = "", clear_password: bool = False) -> str:
+    """Point a server profile to its credentials WITHOUT storing secrets: password_env = name of an environment
+    variable that holds the password; key_path = path to a private key file on the connector host."""
+    try:
+        if password_env and not _ENV_NAME.fullmatch(password_env):
+            raise ValueError("password_env must be the NAME of an environment variable (e.g. BGDB_SSH_PASSWORD), not the password")
+        if key_path:
+            kp = os.path.expanduser(key_path)
+            if not os.path.isfile(kp):                                     # ключът трябва вече да е на машината
+                raise ValueError("key_path does not exist on the connector host")
+            if "PRIVATE KEY" not in Path(kp).read_text(errors="ignore")[:200]:
+                raise ValueError("key_path is not a private key file")
+        if not (password_env or key_path or clear_password):
+            raise ValueError("Give password_env and/or key_path (or clear_password=true)")
+        async with _PROFILE_LOCK:
+            realname = _resolve_profile_name(name)
+            def change(servers):
+                p = servers[realname]
+                p.pop("password", None)                                    # литерална парола никога не остава
+                if clear_password:
+                    p.pop("password_env", None)
+                if password_env:
+                    p["password_env"] = password_env
+                if key_path:
+                    p["key"] = key_path
+                    p.setdefault("key_created", os.path.getmtime(os.path.expanduser(key_path)))
+                return {"server": realname, "password_env": p.get("password_env"),
+                        "password_env_set": bool(p.get("password_env") and os.getenv(p["password_env"])),
+                        "key": bool(p.get("key"))}
+            return json.dumps(_profile_store(change))
+    except Exception as e:
+        return _err(e, name=name)
+
+
+@mcp.tool()
+async def credentials_rotate(name: str, key_type: str = "ed25519", confirm: bool = False,
+                             remove_old_key: bool = False) -> str:
+    """Rotate the SSH key of a server: create a new key (ed25519, or rsa4096 for old systems), add its public part
+    to the server's authorized_keys, test login with it, then switch the profile. Needs confirm=true.
+    The old key is removed from the server only with remove_old_key=true and only after the new key works."""
+    try:
+        if key_type not in ("ed25519", "rsa4096"):
+            raise ValueError("key_type must be ed25519 (default) or rsa4096 (only for old systems)")
+        realname = _resolve_profile_name(name)
+        s = SERVERS[realname]
+        plan = {"server": realname, "key_type": key_type, "current_key_age_days": _key_age_days(s.cfg),
+                "steps": ["generate new key on the connector host", "append public key to ~/.ssh/authorized_keys",
+                          "test login with the new key", "switch profile to the new key"]
+                         + (["remove old public key from the server"] if remove_old_key else [])}
+        ephemeral = os.environ.get("GITHUB_ACTIONS") == "true"              # машината в GitHub се изтрива след сесията
+        if ephemeral:
+            plan["warning"] = "GitHub Actions runner is ephemeral: the new private key is lost when the session ends"
+        if remove_old_key and ephemeral:                                    # иначе рискуваме да заключим достъпа
+            raise ValueError("remove_old_key is not allowed on an ephemeral GitHub Actions runner (would lock you out)")
+        if not confirm:                                                     # без потвърждение само показваме плана
+            return json.dumps({"confirmation_required": True, **plan})
+        if _busy(realname):
+            raise ValueError("Server still has shells, jobs, watchers or forwarded ports")
+
+        # 1) нов ключ — частната част остава само на диска (0600), никога не се връща
+        KEY_DIR.mkdir(parents=True, exist_ok=True)
+        os.chmod(KEY_DIR, 0o700)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        new_path = KEY_DIR / f"{realname}_{key_type}_{stamp}"
+        key = (asyncssh.generate_private_key("ssh-ed25519") if key_type == "ed25519"
+               else asyncssh.generate_private_key("ssh-rsa", key_size=4096))
+        key.write_private_key(str(new_path))
+        os.chmod(new_path, 0o600)
+        pub = key.export_public_key().decode().strip() + f" ssh-connector-{realname}-{stamp}"
+
+        # 2) добавяме публичния ключ (без дубликати), през текущата работеща връзка
+        add = (f"umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && "
+               f"(grep -qxF {shlex.quote(pub)} ~/.ssh/authorized_keys || echo {shlex.quote(pub)} >> ~/.ssh/authorized_keys)")
+        r = await s.run(add, 30)
+        if r.get("error") or r.get("exit_code") != 0:
+            new_path.unlink(missing_ok=True)
+            raise RuntimeError("could not add the new public key on the server: " + (r.get("error") or r.get("stderr") or ""))
+
+        # 3) проверка: вход само с новия ключ, със същата проверка на host key
+        test_cfg = {**s.cfg, "key": str(new_path), "password_env": None, "password": None}
+        tester = Server(realname, test_cfg)
+        try:
+            conn = await tester._connect_host(s.active_host or s.cfg["hosts"][0])
+            conn.close()
+        except Exception as e:
+            raise RuntimeError(f"new key was added but login with it failed; profile NOT changed: {type(e).__name__}: {e}")
+
+        # 4) превключваме профила към новия ключ
+        old_key = s.cfg.get("key")
+        async with _PROFILE_LOCK:
+            def change(servers):
+                p = servers[realname]
+                p["key"], p["key_type"], p["key_created"] = str(new_path), key_type, time.time()
+                return True
+            _profile_store(change)
+
+        # 5) по желание: махаме стария публичен ключ от сървъра (само ако е от нашия ключ)
+        removed_old = False
+        if remove_old_key and old_key and os.path.isfile(os.path.expanduser(old_key)):
+            old_pub = asyncssh.read_private_key(os.path.expanduser(old_key)).export_public_key().decode().split()[:2]
+            pattern = " ".join(old_pub)
+            rm = (f"umask 077; grep -vF {shlex.quote(pattern)} ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new; "
+                  f"mv ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys")
+            rr = await SERVERS[realname].run(rm, 30)
+            removed_old = rr.get("exit_code") == 0
+        return json.dumps({"server": realname, "rotated": True, "key_type": key_type,
+                           "new_key_file": new_path.name, "old_key_removed_from_server": removed_old,
+                           "next_rotation_days": [ROTATE_MIN_DAYS, ROTATE_MAX_DAYS],
+                           **({"warning": plan["warning"]} if ephemeral else {})})
+    except Exception as e:
+        return _err(e, name=name)
+
+
 def _git_sha():
     """Git commit на кода: от GitHub Actions или от локалното хранилище."""
     sha = os.environ.get("GITHUB_SHA", "")
@@ -492,7 +619,9 @@ async def health_status() -> str:
         cfg_ok, cfg_error = False, f"{type(e).__name__}: {e}"
     return json.dumps({
         "version": APP_VERSION, "commit": _git_sha(), "config_ok": cfg_ok, "config_error": cfg_error,
-        "servers": {n: {"connected": s._alive(), "active_host": s.active_host, "last_error": s.last_error}
+        "servers": {n: {"connected": s._alive(), "active_host": s.active_host, "last_error": s.last_error,
+                        "key_age_days": _key_age_days(s.cfg),
+                        "key_rotation_due": (_key_age_days(s.cfg) or 0) >= ROTATE_MAX_DAYS}
                     for n, s in SERVERS.items()},
         "shells": len(SHELLS), "jobs": len(JOBS), "forwards": len(FORWARDS),
         "watchers": sum(1 for t in WATCHERS.values() if not t.done()), "events": len(EVENTS),
@@ -848,6 +977,10 @@ HELP = {
     "server_set_primary": ("Сменя основния адрес", "Set the primary address", {"name": "web1", "host": "10.0.0.6"}),
     "server_failover": ("Превключва към следващия адрес сега", "Switch to the next address now", {"name": "web1"}),
     "server_test": ("Проверява реална SSH връзка", "Test a real SSH connection", {"name": "web1"}),
+    "credentials_set": ("Задава откъде да се вземе паролата/ключа (без тайни)", "Point to password env / key file (no secrets)",
+                        {"name": "BGDB", "password_env": "BGDB_SSH_PASSWORD", "key_path": ""}),
+    "credentials_rotate": ("Сменя SSH ключа (само с потвърждение)", "Rotate the SSH key (confirm required)",
+                           {"name": "BGDB", "key_type": "ed25519", "confirm": False, "remove_old_key": False}),
     "server_remove": ("Маха профил (само с потвърждение)", "Remove a profile (confirm required)",
                       {"name": "web1", "confirm": False}),
     "run_command": ("Изпълнява команда", "Run a command", {"server": "BGDB", "command": "uptime", "sudo": False}),

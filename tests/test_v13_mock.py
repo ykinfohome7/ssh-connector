@@ -61,6 +61,70 @@ async def main():
         assert len(json.loads(await server.help())) == len(server.HELP)
         assert json.loads(await server.help("server_get"))["example"] == {"name": "BGDB"}
         assert "error" in json.loads(await server.help("nope"))
+        # ---- credentials_set: само имена на променливи и пътища, без тайни ----
+        assert "error" in json.loads(await server.credentials_set("BGDB", password_env="s3cret pass"))
+        assert "error" in json.loads(await server.credentials_set("BGDB", key_path="/nope/key"))
+        keyfile = pathlib.Path(directory) / "id_test"
+        keyfile.write_text("-----BEGIN OPENSSH PRIVATE KEY-----\nmock\n-----END OPENSSH PRIVATE KEY-----\n")
+        c = json.loads(await server.credentials_set("BGDB", password_env="NEW_PASS_ENV", key_path=str(keyfile)))
+        assert c["password_env"] == "NEW_PASS_ENV" and c["key"] is True, c
+        assert "mock" not in json.dumps(c)                                   # ключът не се връща
+        saved = yaml.safe_load(path.read_text())["servers"]["BGDB"]
+        assert saved["password_env"] == "NEW_PASS_ENV" and "password" not in saved
+
+        # ---- credentials_rotate: без потвърждение само план ----
+        plan = json.loads(await server.credentials_rotate("BGDB"))
+        assert plan["confirmation_required"] and plan["key_type"] == "ed25519", plan
+        assert "error" in json.loads(await server.credentials_rotate("BGDB", key_type="dsa", confirm=True))
+
+        os.environ["GITHUB_ACTIONS"] = "true"                              # в GitHub: махането на стар ключ е забранено
+        assert "ephemeral" in json.loads(await server.credentials_rotate("BGDB", confirm=True, remove_old_key=True))["error"]
+        os.environ.pop("GITHUB_ACTIONS")
+
+        # ---- credentials_rotate с подменени (mock) ключ, сървър и вход ----
+        os.environ["SSH_CONNECTOR_KEY_DIR"] = directory
+        server.KEY_DIR = pathlib.Path(directory) / "keys"
+
+        class FakeKey:
+            def write_private_key(self, p):
+                pathlib.Path(p).write_text("-----BEGIN OPENSSH PRIVATE KEY-----\nnew\n")
+            def export_public_key(self):
+                return b"ssh-ed25519 AAAAmockNEW\n"
+        server.asyncssh.generate_private_key = lambda *a, **k: FakeKey()
+        commands = []
+
+        async def fake_run(self, command, timeout):
+            commands.append(command)
+            return {"exit_code": 0, "stdout": "", "stderr": ""}
+
+        class FakeConn:
+            def close(self):
+                pass
+
+        async def fake_connect(self, host):
+            assert self.cfg["key"].startswith(str(server.KEY_DIR)), self.cfg   # входът е с новия ключ
+            return FakeConn()
+        server.Server.run = fake_run
+        server.Server._connect_host = fake_connect
+
+        rot = json.loads(await server.credentials_rotate("BGDB", confirm=True))
+        assert rot.get("rotated") and rot["key_type"] == "ed25519", rot
+        assert "new" not in json.dumps(rot).replace("new_key_file", "")    # частният ключ не се връща
+        assert any("authorized_keys" in c and "AAAAmockNEW" in c for c in commands), commands
+        saved = yaml.safe_load(path.read_text())["servers"]["BGDB"]
+        assert saved["key"].startswith(str(server.KEY_DIR)) and saved["key_type"] == "ed25519", saved
+        assert oct(os.stat(saved["key"]).st_mode & 0o777) == "0o600"
+
+        async def fail_connect(self, host):
+            raise OSError("mock: login refused")
+        server.Server._connect_host = fail_connect
+        before = yaml.safe_load(path.read_text())["servers"]["BGDB"]["key"]
+        bad = json.loads(await server.credentials_rotate("BGDB", confirm=True))
+        assert "profile NOT changed" in bad["error"], bad
+        assert yaml.safe_load(path.read_text())["servers"]["BGDB"]["key"] == before   # профилът е непроменен
+
+        h = json.loads(await server.health_status())
+        assert h["servers"]["BGDB"]["key_age_days"] == 0 and not h["servers"]["BGDB"]["key_rotation_due"], h
     print("v1.3 mock tests PASSED")
 
 
