@@ -44,7 +44,9 @@ jobs:
       - name: Check SSH profile management
         id: profiles
         run: python tests/test_profiles.py
-      - name: Check Claude Code and Codex plugins (v1.3.0, 44 tools)
+      - name: Check Codespaces lifecycle tools (offline, no GitHub calls)
+        run: python tests/test_codespaces.py
+      - name: Check Claude Code and Codex plugins (v1.3.3, 48 tools)
         id: plugins
         run: python tests/test_plugins.py
       - name: Check public log redaction and schema
