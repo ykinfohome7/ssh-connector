@@ -173,11 +173,9 @@ def _err(e, **extra):
 # ---------------- servers & commands ----------------
 @mcp.tool()
 async def version_info() -> str:
-    """Return SSH connector backend version and public capability information."""
-    return json.dumps({"name": "ssh-connector", "version": APP_VERSION,
-                       "capabilities": ["servers", "ssh", "sftp", "tunnels", "jobs",
-                                        "events", "server_add", "server_update",
-                                        "server_remove", "server_test"]})
+    """Return SSH connector version, git commit, status and the list of available commands."""
+    return json.dumps({"name": "ssh-connector", "version": APP_VERSION, "commit": _git_sha(),
+                       "status": "ok", "commands": sorted(HELP)}, indent=2)
 
 
 @mcp.tool()
@@ -364,6 +362,141 @@ async def server_test(name: str) -> str:
         return json.dumps({"server": realname, "connected": True, "active_host": s.active_host})
     except Exception as e:
         return _err(e, name=name)
+
+
+# ---------------- v1.3: профили, преминаване, здраве / profiles, failover, health ----------------
+def _busy(realname):
+    """Връща True, ако сървърът има отворени shell-ове, задачи, наблюдатели или тунели."""
+    return any(v["server"] == realname for v in SHELLS.values()) or any(
+        v["server"] == realname for v in FORWARDS.values()) or any(
+        k.startswith(realname + ":") and not t.done() for k, t in WATCHERS.items()) or any(
+        v["server"] == realname for v in JOBS.values())
+
+
+def _public_profile(realname):
+    """Профил без тайни: паролата се показва само като име на променлива и дали е зададена."""
+    s = SERVERS[realname]
+    c = s.cfg
+    return {"name": realname, "hosts": c["hosts"], "primary": c["hosts"][0], "user": c.get("user"),
+            "port": int(c.get("port", 22)), "os": c.get("os"), "tags": c.get("tags", []),
+            "aliases": c.get("aliases", []), "jump": c.get("jump"),
+            "key": bool(c.get("key")),                                    # само дали има ключ, без пътя
+            "password_env": c.get("password_env"),                        # само името на променливата
+            "password_env_set": bool(c.get("password_env") and os.getenv(c["password_env"])),
+            "host_key_check": bool(c.get("known_hosts", "~/.ssh/known_hosts")),
+            "connected": s._alive(), "active_host": s.active_host, "last_error": s.last_error}
+
+
+@mcp.tool()
+async def server_get(name: str) -> str:
+    """Show one server profile (addresses, user, port, tags, aliases, state) without any secrets."""
+    try:
+        return json.dumps(_public_profile(_resolve_profile_name(name)), indent=2)
+    except Exception as e:
+        return _err(e, name=name)
+
+
+@mcp.tool()
+async def server_rename(name: str, new_name: str) -> str:
+    """Rename a server profile. Refused while it has shells, jobs, watchers or tunnels."""
+    try:
+        if not _PROFILE_NAME.fullmatch(new_name):
+            raise ValueError("Invalid server name: use letters, digits, '-' or '_'")
+        async with _PROFILE_LOCK:
+            realname = _resolve_profile_name(name)
+            if _busy(realname):
+                raise ValueError("Server still has shells, jobs, watchers or forwarded ports")
+            def change(servers):
+                if any(new_name.casefold() == k.casefold() for k in servers if k != realname):
+                    raise ValueError("Server name already registered")
+                # пазим реда на сървърите в YAML файла
+                items = [(new_name if k == realname else k, v) for k, v in servers.items()]
+                servers.clear()
+                servers.update(items)
+                return {"renamed": realname, "to": new_name}
+            return json.dumps(_profile_store(change))
+    except Exception as e:
+        return _err(e, name=name)
+
+
+@mcp.tool()
+async def server_set_primary(name: str, host: str) -> str:
+    """Make one of the server's existing addresses the primary (tried first). Saved in the profile."""
+    try:
+        async with _PROFILE_LOCK:
+            realname = _resolve_profile_name(name)
+            hosts = list(SERVERS[realname].cfg["hosts"])
+            if host not in hosts:
+                raise ValueError("Address is not in this profile; add it first with server_update")
+            hosts.remove(host)
+            hosts.insert(0, host)                                          # новият основен адрес е първи
+            def change(servers):
+                servers[realname]["hosts"] = hosts
+                servers[realname].pop("host", None)
+                return {"server": realname, "primary": host, "hosts": hosts}
+            return json.dumps(_profile_store(change))
+    except Exception as e:
+        return _err(e, name=name)
+
+
+@mcp.tool()
+async def server_failover(name: str) -> str:
+    """Switch the live connection to the next address of the server now (for this session only, profile unchanged)."""
+    try:
+        realname = _resolve_profile_name(name)
+        s = SERVERS[realname]
+        hosts = s.cfg["hosts"]
+        if len(hosts) < 2:
+            raise ValueError("Profile has only one address; add a fallback with server_update")
+        current = s.active_host or hosts[0]
+        start = (hosts.index(current) + 1) if current in hosts else 0
+        order = hosts[start:] + hosts[:start]                              # следващият адрес е пръв
+        order = [h for h in order if h != current] or order
+        async with s.lock:
+            if s.conn:
+                s.conn.close()
+            s.conn, errors = None, []
+            for h in order:
+                try:
+                    s.conn = await s._connect_host(h)
+                    s.active_host, s.last_error = h, None
+                    return json.dumps({"server": realname, "from": current, "to": h, "connected": True})
+                except (OSError, asyncssh.Error, asyncio.TimeoutError) as e:
+                    errors.append(f"{h}: {type(e).__name__}: {e}")
+            s.last_error = "; ".join(errors)
+            raise ConnectionError("failover failed -> " + s.last_error)
+    except Exception as e:
+        return _err(e, name=name)
+
+
+def _git_sha():
+    """Git commit на кода: от GitHub Actions или от локалното хранилище."""
+    sha = os.environ.get("GITHUB_SHA", "")
+    if not sha:
+        try:
+            import subprocess
+            sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(Path(__file__).resolve().parent),
+                                 capture_output=True, text=True, timeout=3).stdout.strip()
+        except Exception:
+            sha = ""
+    return sha or "unknown"
+
+
+@mcp.tool()
+async def health_status() -> str:
+    """Connector health: version, commit, config, servers and their connection state, open shells/jobs/tunnels/watchers."""
+    try:
+        init()
+        cfg_ok, cfg_error = True, None
+    except Exception as e:
+        cfg_ok, cfg_error = False, f"{type(e).__name__}: {e}"
+    return json.dumps({
+        "version": APP_VERSION, "commit": _git_sha(), "config_ok": cfg_ok, "config_error": cfg_error,
+        "servers": {n: {"connected": s._alive(), "active_host": s.active_host, "last_error": s.last_error}
+                    for n, s in SERVERS.items()},
+        "shells": len(SHELLS), "jobs": len(JOBS), "forwards": len(FORWARDS),
+        "watchers": sum(1 for t in WATCHERS.values() if not t.done()), "events": len(EVENTS),
+    }, indent=2)
 
 
 @mcp.tool()
@@ -700,6 +833,64 @@ async def get_events(since: float = 0, server: str = "", limit: int = 100) -> st
     return json.dumps(ev[-limit:], indent=2)
 
 
+# ---------------- help: всички команди, описание (BG/EN) и шаблон ----------------
+# Всеки шаблон е готов за пускане: сменяте само своите стойности.
+HELP = {
+    "help": ("Списък с всички команди и примери", "List all commands with examples", {}),
+    "version_info": ("Версия, commit и команди", "Version, commit and commands", {}),
+    "health_status": ("Здраве на конектора и връзките", "Connector and connection health", {}),
+    "list_servers": ("Списък със сървърите", "List servers", {"tag": ""}),
+    "server_get": ("Един профил, без тайни", "One profile, no secrets", {"name": "BGDB"}),
+    "server_add": ("Добавя сървър", "Add a server", {"name": "web1", "hosts": ["10.0.0.5"], "user": "bgadmin",
+                   "port": 22, "tags": ["web"], "aliases": [], "password_env": ""}),
+    "server_update": ("Променя сървър", "Update a server", {"name": "web1", "hosts": ["10.0.0.5", "10.0.0.6"]}),
+    "server_rename": ("Преименува сървър", "Rename a server", {"name": "web1", "new_name": "web-main"}),
+    "server_set_primary": ("Сменя основния адрес", "Set the primary address", {"name": "web1", "host": "10.0.0.6"}),
+    "server_failover": ("Превключва към следващия адрес сега", "Switch to the next address now", {"name": "web1"}),
+    "server_test": ("Проверява реална SSH връзка", "Test a real SSH connection", {"name": "web1"}),
+    "server_remove": ("Маха профил (само с потвърждение)", "Remove a profile (confirm required)",
+                      {"name": "web1", "confirm": False}),
+    "run_command": ("Изпълнява команда", "Run a command", {"server": "BGDB", "command": "uptime", "sudo": False}),
+    "run_on_many": ("Команда на няколко сървъра", "Command on several servers",
+                    {"servers": ["BGDB", "web1"], "command": "df -h"}),
+    "run_on_group": ("Команда на група (таг)", "Command on a tag group", {"tag": "web", "command": "uptime"}),
+    "list_snippets": ("Запазени команди", "Saved commands", {}),
+    "run_snippet": ("Пуска запазена команда", "Run a saved command", {"server": "BGDB", "name": "disk"}),
+    "history": ("История на командите", "Command history", {"limit": 20, "server": ""}),
+    "start_job": ("Дълга задача във фонов режим", "Long background job", {"server": "BGDB", "command": "apt-get update"}),
+    "job_status": ("Състояние на задача", "Job status", {"job_id": "abcd1234", "tail": 50}),
+    "shell_open": ("Отваря терминал", "Open a terminal", {"server": "BGDB"}),
+    "shell_send": ("Пише в терминала", "Type into the terminal", {"shell_id": "abcd1234", "input": "ls -la"}),
+    "shell_close": ("Затваря терминал", "Close a terminal", {"shell_id": "abcd1234"}),
+    "list_shells": ("Отворени терминали", "Open terminals", {}),
+    "sftp_list": ("Файлове в папка", "List a folder", {"server": "BGDB", "path": "/var/log"}),
+    "sftp_read": ("Чете файл", "Read a file", {"server": "BGDB", "path": "/etc/hostname"}),
+    "sftp_write": ("Записва файл", "Write a file", {"server": "BGDB", "path": "/tmp/a.txt", "content": "hello"}),
+    "sftp_upload": ("Качва файл", "Upload a file", {"server": "BGDB", "local_path": "a.txt", "remote_path": "/tmp/a.txt"}),
+    "sftp_download": ("Сваля файл", "Download a file", {"server": "BGDB", "remote_path": "/tmp/a.txt", "local_path": "a.txt"}),
+    "sftp_manage": ("mkdir / remove / rename", "mkdir / remove / rename",
+                    {"server": "BGDB", "action": "mkdir", "path": "/tmp/new", "new_path": ""}),
+    "port_forward": ("Тунел към порт", "Forward a port", {"server": "BGDB", "local_port": 15432, "remote_port": 5432}),
+    "list_forwards": ("Активни тунели", "Active tunnels", {}),
+    "stop_forward": ("Спира тунел", "Stop a tunnel", {"forward_id": "abcd1234"}),
+    "start_watch": ("Следи грешки, сривове, влизания", "Watch errors, crashes, logins", {"server": "BGDB"}),
+    "stop_watch": ("Спира следенето", "Stop watching", {"server": "BGDB"}),
+    "get_events": ("Събрани събития", "Collected events", {"server": "", "limit": 50}),
+}
+
+
+@mcp.tool()
+async def help(command: str = "") -> str:
+    """List every command with a short Bulgarian and English description and a ready-to-run example."""
+    if command:
+        if command not in HELP:
+            return json.dumps({"error": f"unknown command '{command}'", "known": sorted(HELP)})
+        bg, en, ex = HELP[command]
+        return json.dumps({"command": command, "bg": bg, "en": en, "example": ex}, ensure_ascii=False, indent=2)
+    return json.dumps([{"command": k, "bg": v[0], "en": v[1], "example": v[2]} for k, v in HELP.items()],
+                      ensure_ascii=False, indent=2)
+
+
 # ---------------- HTTP mode (ChatGPT, remote Codex) ----------------
 def _credential(headers):
     """Accept 'Authorization: Bearer <t>', 'Authorization: <t>', 'x-api-key: <t>' or 'api-key: <t>'."""
@@ -774,7 +965,7 @@ if __name__ == "__main__":
     import argparse
 
     p = argparse.ArgumentParser()
-    p.add_argument("-v", "--version", action="version", version=f"ssh-connector {APP_VERSION}")
+    p.add_argument("-v", "--version", action="version", version=f"ssh-connector {APP_VERSION} (commit {_git_sha()[:12]})")
     p.add_argument("--http", action="store_true", help="serve over streamable HTTP instead of stdio")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
