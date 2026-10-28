@@ -468,7 +468,7 @@ async def server_failover(name: str) -> str:
             raise ValueError("Profile has only one address; add a fallback with server_update")
         current = s.active_host or hosts[0]
         start = (hosts.index(current) + 1) if current in hosts else 0
-        order = hosts[start:] + hosts[:start]                              # следващият адрес е първ
+        order = hosts[start:] + hosts[:start]                              # следващият адрес е пръв
         order = [h for h in order if h != current] or order
         async with s.lock:
             if s.conn:
@@ -683,7 +683,15 @@ def _generate_password(length, charset):
 
 
 def _public_url():
-    base = os.environ.get("SSH_CONNECTOR_PUBLIC_URL", "").rstrip("/")
+    """Публичният https адрес: от SSH_CONNECTOR_PUBLIC_URL, иначе от файла SSH_CONNECTOR_PUBLIC_URL_FILE,
+    който скриптът на сесията записва СЛЕД като всичко е стартирано (без рестарт на конектора)."""
+    base = os.environ.get("SSH_CONNECTOR_PUBLIC_URL", "")
+    if not base and os.environ.get("SSH_CONNECTOR_PUBLIC_URL_FILE"):
+        try:
+            base = Path(os.environ["SSH_CONNECTOR_PUBLIC_URL_FILE"]).read_text().strip()
+        except OSError:
+            base = ""
+    base = base.rstrip("/")
     if not base.startswith("https://"):
         raise ValueError("Secure links need SSH_CONNECTOR_PUBLIC_URL = the connector's https address "
                          "(e.g. the Tailscale Funnel URL) and HTTP mode (--http)")
