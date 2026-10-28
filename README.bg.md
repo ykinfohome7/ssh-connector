@@ -5,7 +5,7 @@
 **Работа директно през SSH на много сървъри — от Claude и ChatGPT.**
 Команди, интерактивни терминали, SFTP, тунели, резервни адреси, събития и сигурна `sudo` парола — без посредник.
 
-[![Версия](https://img.shields.io/badge/версия-1.3.2-blue)](CHANGELOG.md)
+[![Версия](https://img.shields.io/badge/версия-1.3.3-blue)](CHANGELOG.md)
 [![Тестове](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml/badge.svg)](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml)
 [![Лиценз: GPL-3.0](https://img.shields.io/badge/лиценз-GPL--3.0-green)](LICENSE)
 [![Звезди](https://img.shields.io/github/stars/ykinfohome7/ssh-connector?style=social)](https://github.com/ykinfohome7/ssh-connector/stargazers)
@@ -30,7 +30,7 @@
 | 👀 **Събития** | Следи грешки, сривове / OOM и влизания — без да питаш |
 | 🧩 **Групи и шаблони** | Една команда на цяла група; запазени команди |
 | 🌐 **Tailscale** | Състояние, устройства, ключове — и постоянен HTTPS адрес чрез Funnel |
-| 📖 **Вградена помощ** | `help` показва всички **45 команди** на БГ и EN с готов пример |
+| 📖 **Вградена помощ** | `help` показва всички **48 команди** на БГ и EN с готов пример |
 
 ## 📦 Инсталиране
 
@@ -82,7 +82,13 @@ codex  mcp add ssh -- sh $(pwd)/plugins/ssh-connector/bin/run.sh     # Codex
 
 Пълен списък с параметри и примери: **[docs/COMMANDS.bg.md](docs/COMMANDS.bg.md)**.
 
-## 🔑 sudo парола (ново във 1.3.2)
+## 🧰 GitHub Codespaces (ново във v1.3.3)
+
+Три нови MCP инструмента: `codespace_status(name="")` показва всички достъпни Codespaces или един по име; `codespace_start(name)` стартира съществуващ Codespace; `codespace_stop(name, confirm=true)` спира само след изрично потвърждение. Използват `gh` и официалния GitHub REST API, с права `codespace` или Codespaces lifecycle admin. Не изпращат GitHub токени като параметри.
+
+**Важно:** ако MCP конекторът работи само вътре в спрян Codespace, не може сам да го събуди. За събуждане е нужен независим работещ конектор или GitHub.
+
+## 🔑 sudo парола (ново във 1.3.3)
 
 Когато команда иска `sudo`, конекторът не виси — пита те да избереш:
 
