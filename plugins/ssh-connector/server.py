@@ -240,12 +240,14 @@ def _checked_profile(name, hosts, user, port, tags, aliases, password_env):
     }
 
 
-def _profile_store(modify):
+def _profile_store(modify, defaults_update=None):
     path = Path(os.path.expanduser(CONFIG_PATH))
     with path.open("r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
     if not isinstance(raw, dict):
         raise ValueError("Server configuration must be a YAML map")
+    if defaults_update:  # общи настройки за всички сървъри
+        raw["defaults"] = {**(raw.get("defaults") or {}), **defaults_update}
     raw.setdefault("servers", {})
     if not isinstance(raw["servers"], dict):
         raise ValueError("servers must be a YAML map")
@@ -594,6 +596,170 @@ async def credentials_rotate(name: str, key_type: str = "ed25519", confirm: bool
                            **({"warning": plan["warning"]} if ephemeral else {})})
     except Exception as e:
         return _err(e, name=name)
+
+
+# ---------------- v1.3: настройки на сесията / session settings ----------------
+# Разрешени настройки и граници (мин, макс) — без тях стойността се отказва
+SESSION_LIMITS = {"connect_timeout": (1, 120), "retries": (1, 10), "keepalive_interval": (5, 600),
+                  "keepalive_count_max": (1, 20), "command_timeout": (5, 7200), "max_sessions": (1, 50)}
+
+
+@mcp.tool()
+async def session_configure(server: str = "", connect_timeout: int = 0, retries: int = 0,
+                            keepalive_interval: int = 0, keepalive_count_max: int = 0,
+                            command_timeout: int = 0, max_sessions: int = 0) -> str:
+    """Change connection settings (timeouts, retries, keepalive, parallel sessions) for one server,
+    or for all servers when server is empty. Zero = keep the current value. Called with no values it shows them."""
+    try:
+        asked = {k: v for k, v in dict(connect_timeout=connect_timeout, retries=retries,
+                                       keepalive_interval=keepalive_interval, keepalive_count_max=keepalive_count_max,
+                                       command_timeout=command_timeout, max_sessions=max_sessions).items() if v}
+        for k, v in asked.items():                                          # проверка на границите
+            lo, hi = SESSION_LIMITS[k]
+            if not lo <= int(v) <= hi:
+                raise ValueError(f"{k} must be between {lo} and {hi}")
+        async with _PROFILE_LOCK:
+            init()
+            realname = _resolve_profile_name(server) if server else None
+            if not asked:                                                   # само показваме текущите стойности
+                cfgs = {realname: SERVERS[realname].cfg} if realname else {n: s.cfg for n, s in SERVERS.items()}
+                return json.dumps({n: {k: c.get(k) for k in SESSION_LIMITS} for n, c in cfgs.items()}, indent=2)
+            def change(servers):
+                if realname:
+                    servers[realname].update(asked)                         # само за един сървър
+                return {"scope": realname or "defaults (all servers)", "changed": asked}
+            return json.dumps(_profile_store(change, None if realname else asked))
+    except Exception as e:
+        return _err(e, server=server)
+
+
+# ---------------- v1.3: Tailscale ----------------
+# Статус и устройства се четат от локалния `tailscale` на машината на конектора.
+# Ключовете се управляват през Tailscale API с TAILSCALE_API_KEY (само от средата, никога не се показва).
+TS_API = "https://api.tailscale.com/api/v2"
+
+
+async def _ts_cli(*args):
+    """Пуска `tailscale ...` локално и връща (код, изход)."""
+    proc = await asyncio.create_subprocess_exec("tailscale", *args, stdout=asyncio.subprocess.PIPE,
+                                                stderr=asyncio.subprocess.PIPE)
+    out, err = await asyncio.wait_for(proc.communicate(), timeout=20)
+    return proc.returncode, (out or err).decode(errors="replace")
+
+
+async def _ts_api(method, path, body=None):
+    """Заявка към Tailscale API. Ключът идва само от TAILSCALE_API_KEY и не се връща никъде."""
+    import urllib.request
+    key = os.environ.get("TAILSCALE_API_KEY", "")
+    if not key:
+        raise RuntimeError("TAILSCALE_API_KEY is not set on the connector host (add it as a secret)")
+    tailnet = os.environ.get("TAILSCALE_TAILNET", "-")                    # '-' = тейлнетът на ключа
+    req = urllib.request.Request(f"{TS_API}/tailnet/{tailnet}{path}", method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    def call():
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = r.read()
+            return json.loads(data) if data else {}
+    return await asyncio.to_thread(call)
+
+
+@mcp.tool()
+async def tailscale_status() -> str:
+    """Tailscale on the connector host: version, this device (name, IPs, online), the account it is logged in with, Funnel."""
+    try:
+        code, ver = await _ts_cli("version")
+        code2, st = await _ts_cli("status", "--json")
+        if code2 != 0:
+            raise RuntimeError("tailscale is not running here: " + st.strip()[:200])
+        j = json.loads(st)
+        me = j.get("Self") or {}
+        user = (j.get("User") or {}).get(str(me.get("UserID")), {})
+        _, funnel = await _ts_cli("funnel", "status")
+        return json.dumps({"version": ver.splitlines()[0] if ver else None, "backend_state": j.get("BackendState"),
+                           "device": me.get("HostName"), "dns_name": (me.get("DNSName") or "").rstrip("."),
+                           "ips": me.get("TailscaleIPs"), "online": me.get("Online"),
+                           "account": user.get("LoginName"), "tailnet": (j.get("CurrentTailnet") or {}).get("Name"),
+                           "funnel_on": "Funnel on" in funnel}, indent=2)
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+async def tailscale_devices(online_only: bool = False) -> str:
+    """List devices in the tailnet seen by this host: name, IPs, OS, online, last seen."""
+    try:
+        code, st = await _ts_cli("status", "--json")
+        if code != 0:
+            raise RuntimeError("tailscale is not running here: " + st.strip()[:200])
+        j = json.loads(st)
+        out = []
+        for p in list((j.get("Peer") or {}).values()) + [j.get("Self") or {}]:
+            if online_only and not p.get("Online"):
+                continue
+            out.append({"name": p.get("HostName"), "dns_name": (p.get("DNSName") or "").rstrip("."),
+                        "ips": p.get("TailscaleIPs"), "os": p.get("OS"), "online": p.get("Online"),
+                        "last_seen": p.get("LastSeen"), "this_device": p is j.get("Self")})
+        return json.dumps(sorted(out, key=lambda d: (not d["online"], d["name"] or "")), indent=2)
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+async def tailscale_keys() -> str:
+    """List Tailscale auth keys (id, created, expires, reusable/ephemeral, tags) — never the key values. Needs TAILSCALE_API_KEY."""
+    try:
+        data = await _ts_api("GET", "/keys?all=true")
+        out = []
+        for k in data.get("keys", []):
+            d = k if "created" in k else await _ts_api("GET", f"/keys/{k['id']}")
+            create = ((d.get("capabilities") or {}).get("devices") or {}).get("create") or {}
+            out.append({"id": d.get("id"), "description": d.get("description"), "created": d.get("created"),
+                        "expires": d.get("expires"), "revoked": d.get("revoked"),
+                        "reusable": create.get("reusable"), "ephemeral": create.get("ephemeral"), "tags": create.get("tags")})
+        return json.dumps(out, indent=2)
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+async def tailscale_key_create(description: str = "ssh-connector", reusable: bool = True, ephemeral: bool = True,
+                               tags: list[str] = [], expiry_days: int = 90, confirm: bool = False) -> str:
+    """Create a new Tailscale auth key (needs confirm=true and TAILSCALE_API_KEY). The key value is NOT shown:
+    it is saved to a private file (0600) on the connector host; put it into the TAILSCALE_AUTHKEY secret yourself."""
+    try:
+        if not 1 <= int(expiry_days) <= 90:
+            raise ValueError("expiry_days must be 1..90")
+        body = {"description": description[:50], "expirySeconds": int(expiry_days) * 86400,
+                "capabilities": {"devices": {"create": {"reusable": reusable, "ephemeral": ephemeral,
+                                                        "preauthorized": True, "tags": tags}}}}
+        if not confirm:
+            return json.dumps({"confirmation_required": True, "will_create": body})
+        d = await _ts_api("POST", "/keys", body)
+        KEY_DIR.mkdir(parents=True, exist_ok=True)
+        os.chmod(KEY_DIR, 0o700)
+        f = KEY_DIR / f"tailscale_authkey_{d.get('id')}"
+        f.write_text((d.get("key") or "") + "\n")                          # стойността отива само във файла
+        os.chmod(f, 0o600)
+        return json.dumps({"created": True, "id": d.get("id"), "expires": d.get("expires"),
+                           "saved_to_file": str(f), "key_shown": False,
+                           "next": "copy the file content into the TAILSCALE_AUTHKEY secret, then delete the file"})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+async def tailscale_key_revoke(key_id: str, confirm: bool = False) -> str:
+    """Revoke (delete) a compromised Tailscale auth key by id. Needs confirm=true and TAILSCALE_API_KEY."""
+    try:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{4,64}", key_id):
+            raise ValueError("invalid key id")
+        if not confirm:
+            return json.dumps({"confirmation_required": True, "will_revoke": key_id})
+        await _ts_api("DELETE", f"/keys/{key_id}")
+        return json.dumps({"revoked": key_id})
+    except Exception as e:
+        return _err(e, key_id=key_id)
 
 
 def _git_sha():
@@ -981,6 +1147,16 @@ HELP = {
                         {"name": "BGDB", "password_env": "BGDB_SSH_PASSWORD", "key_path": ""}),
     "credentials_rotate": ("Сменя SSH ключа (само с потвърждение)", "Rotate the SSH key (confirm required)",
                            {"name": "BGDB", "key_type": "ed25519", "confirm": False, "remove_old_key": False}),
+    "session_configure": ("Таймаути, опити, keepalive, паралелни сесии", "Timeouts, retries, keepalive, parallel sessions",
+                          {"server": "BGDB", "connect_timeout": 10, "retries": 3, "command_timeout": 300}),
+    "tailscale_status": ("Tailscale: версия, устройство, акаунт, Funnel", "Tailscale: version, device, account, Funnel", {}),
+    "tailscale_devices": ("Устройства в Tailscale мрежата", "Devices in the tailnet", {"online_only": False}),
+    "tailscale_keys": ("Списък с auth ключове (без стойностите)", "List auth keys (no values)", {}),
+    "tailscale_key_create": ("Нов auth ключ (само с потвърждение)", "New auth key (confirm required)",
+                             {"description": "github-runner", "reusable": True, "ephemeral": True, "expiry_days": 90,
+                              "confirm": False}),
+    "tailscale_key_revoke": ("Отнема компрометиран ключ (само с потвърждение)", "Revoke a compromised key (confirm required)",
+                             {"key_id": "kXXXXXXXXXX", "confirm": False}),
     "server_remove": ("Маха профил (само с потвърждение)", "Remove a profile (confirm required)",
                       {"name": "web1", "confirm": False}),
     "run_command": ("Изпълнява команда", "Run a command", {"server": "BGDB", "command": "uptime", "sudo": False}),
