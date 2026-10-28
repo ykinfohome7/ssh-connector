@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # ssh-connector: one-shot installer for an always-on server (Debian/Ubuntu or RHEL/Fedora/Rocky/Alma).
-# Runs the connector in HTTP mode as a systemd service and publishes it over HTTPS with a Cloudflare tunnel,
-# so Claude and ChatGPT (web, desktop, iPhone) can use it as a custom connector.
+# Runs the connector as a loopback-only systemd service; public HTTPS ingress is configured separately.
+# Preferred ingress: bgssh.abrdns.com:443 on a trusted persistent Debian reverse proxy.
+# Never expose the local HTTP port or install a temporary Cloudflare tunnel.
 #
 #   curl -fsSL https://raw.githubusercontent.com/ykinfohome7/ssh-connector/main/install-server.sh | sudo bash
 #
 # Re-running is safe: it updates the code and keeps your token, key and server list.
-# Options (env): PORT=8765  NO_TUNNEL=1 (skip Cloudflare)  SRC=/path/to/checkout (install from a local copy)
+# Options (env): PORT=8765 SRC=/path/to/checkout (install from a local copy).
 set -euo pipefail
 
 [ "$(id -u)" = 0 ] || { echo "Please run as root: curl ... | sudo bash"; exit 1; }
@@ -105,39 +106,15 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-if [ "${NO_TUNNEL:-0}" != 1 ]; then
-  if ! command -v cloudflared >/dev/null 2>&1; then
-    case "$(uname -m)" in
-      x86_64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; armv7l) ARCH=arm ;; *) ARCH=amd64 ;;
-    esac
-    curl -fsSL -o /usr/local/bin/cloudflared \
-      "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH"
-    chmod +x /usr/local/bin/cloudflared
-  fi
-  cat > /etc/systemd/system/ssh-connector-tunnel.service <<EOF
-[Unit]
-Description=ssh-connector public HTTPS tunnel (Cloudflare quick tunnel)
-After=ssh-connector.service network-online.target
-Wants=network-online.target
-
-[Service]
-User=sshconn
-Environment=HOME=$DATA
-ExecStart=$(command -v cloudflared) tunnel --no-autoupdate --url http://127.0.0.1:$PORT
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-fi
+# Disable any quick tunnel service installed by an earlier connector release.
+# This does NOT affect unrelated Cloudflare services.
+systemctl disable --now ssh-connector-tunnel.service >/dev/null 2>&1 || true
 
 cat > /usr/local/bin/ssh-connector-info <<'EOF'
 #!/bin/sh
 # Shows the connection details for Claude and ChatGPT (run as root).
 . /etc/ssh-connector/env
-URL=$(journalctl -u ssh-connector-tunnel --no-pager -o cat 2>/dev/null | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1)
-[ -n "$URL" ] || URL="https://<your-public-address>"
+URL="https://bgssh.abrdns.com"
 echo
 echo "===================== ssh-connector ====================="
 echo "CLAUDE  (Customize > Connectors > + Add > Add custom connector)"
@@ -146,13 +123,15 @@ echo "  Authentication: No sign in"
 echo "  Request header: Authorization = Bearer $SSH_CONNECTOR_TOKEN"
 echo
 echo "CHATGPT (Settings > Apps & Connectors > Advanced > Developer mode > Create)"
-echo "  URL:            $URL/$SSH_CONNECTOR_TOKEN/mcp"
+echo "  URL:            $URL/<SSH_CONNECTOR_TOKEN>/mcp"
 echo "  Authentication: No authentication"
 echo
 echo "Add this public key to ~/.ssh/authorized_keys on every server you want to reach:"
 cat /var/lib/ssh-connector/.ssh/id_ed25519.pub
 echo
 echo "Server list: /etc/ssh-connector/servers.yaml   then: systemctl restart ssh-connector"
+echo "Use HTTPS only after the public reverse proxy + certificate are verified."
+echo "The token is in /etc/ssh-connector/env (root-only). Never publish it."
 echo "Keep the token secret. Anyone with it can run commands on your servers."
 echo "========================================================="
 EOF
@@ -167,10 +146,6 @@ chmod 600 /root/.ssh/authorized_keys
 systemctl daemon-reload
 systemctl enable --now ssh-connector >/dev/null 2>&1
 systemctl restart ssh-connector
-if [ "${NO_TUNNEL:-0}" != 1 ]; then
-  systemctl enable --now ssh-connector-tunnel >/dev/null 2>&1
-  systemctl restart ssh-connector-tunnel
-fi
 
 say "Checking"
 for i in $(seq 1 30); do
@@ -179,14 +154,5 @@ for i in $(seq 1 30); do
   sleep 2
 done
 echo "Local server answers without token: HTTP $code (401 = running and protected)"
-if [ "${NO_TUNNEL:-0}" != 1 ]; then
-  echo "Waiting for the public HTTPS address (up to 3 min)..."
-  for i in $(seq 1 90); do
-    journalctl -u ssh-connector-tunnel --no-pager -o cat | grep -q 'trycloudflare.com' && break
-    sleep 2
-  done
-fi
-/usr/local/bin/ssh-connector-info
-if ! journalctl -u ssh-connector-tunnel --no-pager -o cat 2>/dev/null | grep -q 'trycloudflare.com'; then
-  echo "The public address is not ready yet. Run again in a minute:  sudo ssh-connector-info"
-fi
+echo "Public HTTPS must be configured separately at https://bgssh.abrdns.com."
+echo "ClouDNS DNS / web redirect certificates alone do not proxy MCP traffic."
