@@ -35,6 +35,8 @@ jobs:
       - name: Check Claude Code and Codex plugins (v1.3.0, 44 tools)
         id: plugins
         run: python tests/test_plugins.py
+      - name: Check public log redaction and schema
+        run: python tests/test_ci_summary.py
       - name: Verify SSH, MCP and installation integration
         id: integration
         shell: bash
