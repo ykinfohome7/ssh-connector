@@ -173,11 +173,9 @@ def _err(e, **extra):
 # ---------------- servers & commands ----------------
 @mcp.tool()
 async def version_info() -> str:
-    """Return SSH connector backend version and public capability information."""
-    return json.dumps({"name": "ssh-connector", "version": APP_VERSION,
-                       "capabilities": ["servers", "ssh", "sftp", "tunnels", "jobs",
-                                        "events", "server_add", "server_update",
-                                        "server_remove", "server_test"]})
+    """Return SSH connector version, git commit, status and the list of available commands."""
+    return json.dumps({"name": "ssh-connector", "version": APP_VERSION, "commit": _git_sha(),
+                       "status": "ok", "commands": sorted(HELP)}, indent=2)
 
 
 @mcp.tool()
@@ -242,12 +240,14 @@ def _checked_profile(name, hosts, user, port, tags, aliases, password_env):
     }
 
 
-def _profile_store(modify):
+def _profile_store(modify, defaults_update=None):
     path = Path(os.path.expanduser(CONFIG_PATH))
     with path.open("r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
     if not isinstance(raw, dict):
         raise ValueError("Server configuration must be a YAML map")
+    if defaults_update:  # общи настройки за всички сървъри
+        raw["defaults"] = {**(raw.get("defaults") or {}), **defaults_update}
     raw.setdefault("servers", {})
     if not isinstance(raw["servers"], dict):
         raise ValueError("servers must be a YAML map")
@@ -364,6 +364,434 @@ async def server_test(name: str) -> str:
         return json.dumps({"server": realname, "connected": True, "active_host": s.active_host})
     except Exception as e:
         return _err(e, name=name)
+
+
+# ---------------- v1.3: профили, преминаване, здраве / profiles, failover, health ----------------
+def _busy(realname):
+    """Връща True, ако сървърът има отворени shell-ове, задачи, наблюдатели или тунели."""
+    return any(v["server"] == realname for v in SHELLS.values()) or any(
+        v["server"] == realname for v in FORWARDS.values()) or any(
+        k.startswith(realname + ":") and not t.done() for k, t in WATCHERS.items()) or any(
+        v["server"] == realname for v in JOBS.values())
+
+
+def _public_profile(realname):
+    """Профил без тайни: паролата се показва само като име на променлива и дали е зададена."""
+    s = SERVERS[realname]
+    c = s.cfg
+    return {"name": realname, "hosts": c["hosts"], "primary": c["hosts"][0], "user": c.get("user"),
+            "port": int(c.get("port", 22)), "os": c.get("os"), "tags": c.get("tags", []),
+            "aliases": c.get("aliases", []), "jump": c.get("jump"),
+            "key": bool(c.get("key")),                                    # само дали има ключ, без пътя
+            "password_env": c.get("password_env"),                        # само името на променливата
+            "password_env_set": bool(c.get("password_env") and os.getenv(c["password_env"])),
+            "host_key_check": bool(c.get("known_hosts", "~/.ssh/known_hosts")),
+            "connected": s._alive(), "active_host": s.active_host, "last_error": s.last_error}
+
+
+@mcp.tool()
+async def server_get(name: str) -> str:
+    """Show one server profile (addresses, user, port, tags, aliases, state) without any secrets."""
+    try:
+        return json.dumps(_public_profile(_resolve_profile_name(name)), indent=2)
+    except Exception as e:
+        return _err(e, name=name)
+
+
+@mcp.tool()
+async def server_rename(name: str, new_name: str) -> str:
+    """Rename a server profile. Refused while it has shells, jobs, watchers or tunnels."""
+    try:
+        if not _PROFILE_NAME.fullmatch(new_name):
+            raise ValueError("Invalid server name: use letters, digits, '-' or '_'")
+        async with _PROFILE_LOCK:
+            realname = _resolve_profile_name(name)
+            if _busy(realname):
+                raise ValueError("Server still has shells, jobs, watchers or forwarded ports")
+            def change(servers):
+                if any(new_name.casefold() == k.casefold() for k in servers if k != realname):
+                    raise ValueError("Server name already registered")
+                # пазим реда на сървърите в YAML файла
+                items = [(new_name if k == realname else k, v) for k, v in servers.items()]
+                servers.clear()
+                servers.update(items)
+                return {"renamed": realname, "to": new_name}
+            return json.dumps(_profile_store(change))
+    except Exception as e:
+        return _err(e, name=name)
+
+
+@mcp.tool()
+async def server_set_primary(name: str, host: str) -> str:
+    """Make one of the server's existing addresses the primary (tried first). Saved in the profile."""
+    try:
+        async with _PROFILE_LOCK:
+            realname = _resolve_profile_name(name)
+            hosts = list(SERVERS[realname].cfg["hosts"])
+            if host not in hosts:
+                raise ValueError("Address is not in this profile; add it first with server_update")
+            hosts.remove(host)
+            hosts.insert(0, host)                                          # новият основен адрес е първи
+            def change(servers):
+                servers[realname]["hosts"] = hosts
+                servers[realname].pop("host", None)
+                return {"server": realname, "primary": host, "hosts": hosts}
+            return json.dumps(_profile_store(change))
+    except Exception as e:
+        return _err(e, name=name)
+
+
+@mcp.tool()
+async def server_failover(name: str) -> str:
+    """Switch the live connection to the next address of the server now (for this session only, profile unchanged)."""
+    try:
+        realname = _resolve_profile_name(name)
+        s = SERVERS[realname]
+        hosts = s.cfg["hosts"]
+        if len(hosts) < 2:
+            raise ValueError("Profile has only one address; add a fallback with server_update")
+        current = s.active_host or hosts[0]
+        start = (hosts.index(current) + 1) if current in hosts else 0
+        order = hosts[start:] + hosts[:start]                              # следващият адрес е пръв
+        order = [h for h in order if h != current] or order
+        async with s.lock:
+            if s.conn:
+                s.conn.close()
+            s.conn, errors = None, []
+            for h in order:
+                try:
+                    s.conn = await s._connect_host(h)
+                    s.active_host, s.last_error = h, None
+                    return json.dumps({"server": realname, "from": current, "to": h, "connected": True})
+                except (OSError, asyncssh.Error, asyncio.TimeoutError) as e:
+                    errors.append(f"{h}: {type(e).__name__}: {e}")
+            s.last_error = "; ".join(errors)
+            raise ConnectionError("failover failed -> " + s.last_error)
+    except Exception as e:
+        return _err(e, name=name)
+
+
+# ---------------- v1.3: данни за достъп / credentials ----------------
+# Правила: никога не връщаме пароли, ключове или токени; пазим само имена на променливи и пътища.
+# Ed25519 по подразбиране, RSA 4096 само за стари системи; смяна на ключа на 40-90 дни.
+KEY_DIR = Path(os.path.expanduser(os.environ.get("SSH_CONNECTOR_KEY_DIR", "~/.ssh/ssh-connector")))
+ROTATE_MIN_DAYS, ROTATE_MAX_DAYS = 40, 90
+
+
+def _key_age_days(cfg):
+    """Възраст на ключа в дни (от key_created в профила) или None, ако не е известна."""
+    created = cfg.get("key_created")
+    return None if not created else int((time.time() - float(created)) // 86400)
+
+
+@mcp.tool()
+async def credentials_set(name: str, password_env: str = "", key_path: str = "", clear_password: bool = False) -> str:
+    """Point a server profile to its credentials WITHOUT storing secrets: password_env = name of an environment
+    variable that holds the password; key_path = path to a private key file on the connector host."""
+    try:
+        if password_env and not _ENV_NAME.fullmatch(password_env):
+            raise ValueError("password_env must be the NAME of an environment variable (e.g. BGDB_SSH_PASSWORD), not the password")
+        if key_path:
+            kp = os.path.expanduser(key_path)
+            if not os.path.isfile(kp):                                     # ключът трябва вече да е на машината
+                raise ValueError("key_path does not exist on the connector host")
+            if "PRIVATE KEY" not in Path(kp).read_text(errors="ignore")[:200]:
+                raise ValueError("key_path is not a private key file")
+        if not (password_env or key_path or clear_password):
+            raise ValueError("Give password_env and/or key_path (or clear_password=true)")
+        async with _PROFILE_LOCK:
+            realname = _resolve_profile_name(name)
+            def change(servers):
+                p = servers[realname]
+                p.pop("password", None)                                    # литерална парола никога не остава
+                if clear_password:
+                    p.pop("password_env", None)
+                if password_env:
+                    p["password_env"] = password_env
+                if key_path:
+                    p["key"] = key_path
+                    p.setdefault("key_created", os.path.getmtime(os.path.expanduser(key_path)))
+                return {"server": realname, "password_env": p.get("password_env"),
+                        "password_env_set": bool(p.get("password_env") and os.getenv(p["password_env"])),
+                        "key": bool(p.get("key"))}
+            return json.dumps(_profile_store(change))
+    except Exception as e:
+        return _err(e, name=name)
+
+
+@mcp.tool()
+async def credentials_rotate(name: str, key_type: str = "ed25519", confirm: bool = False,
+                             remove_old_key: bool = False) -> str:
+    """Rotate the SSH key of a server: create a new key (ed25519, or rsa4096 for old systems), add its public part
+    to the server's authorized_keys, test login with it, then switch the profile. Needs confirm=true.
+    The old key is removed from the server only with remove_old_key=true and only after the new key works."""
+    try:
+        if key_type not in ("ed25519", "rsa4096"):
+            raise ValueError("key_type must be ed25519 (default) or rsa4096 (only for old systems)")
+        realname = _resolve_profile_name(name)
+        s = SERVERS[realname]
+        plan = {"server": realname, "key_type": key_type, "current_key_age_days": _key_age_days(s.cfg),
+                "steps": ["generate new key on the connector host", "append public key to ~/.ssh/authorized_keys",
+                          "test login with the new key", "switch profile to the new key"]
+                         + (["remove old public key from the server"] if remove_old_key else [])}
+        ephemeral = os.environ.get("GITHUB_ACTIONS") == "true"              # машината в GitHub се изтрива след сесията
+        if ephemeral:
+            plan["warning"] = "GitHub Actions runner is ephemeral: the new private key is lost when the session ends"
+        if remove_old_key and ephemeral:                                    # иначе рискуваме да заключим достъпа
+            raise ValueError("remove_old_key is not allowed on an ephemeral GitHub Actions runner (would lock you out)")
+        if not confirm:                                                     # без потвърждение само показваме плана
+            return json.dumps({"confirmation_required": True, **plan})
+        if _busy(realname):
+            raise ValueError("Server still has shells, jobs, watchers or forwarded ports")
+
+        # 1) нов ключ — частната част остава само на диска (0600), никога не се връща
+        KEY_DIR.mkdir(parents=True, exist_ok=True)
+        os.chmod(KEY_DIR, 0o700)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        new_path = KEY_DIR / f"{realname}_{key_type}_{stamp}"
+        key = (asyncssh.generate_private_key("ssh-ed25519") if key_type == "ed25519"
+               else asyncssh.generate_private_key("ssh-rsa", key_size=4096))
+        key.write_private_key(str(new_path))
+        os.chmod(new_path, 0o600)
+        pub = key.export_public_key().decode().strip() + f" ssh-connector-{realname}-{stamp}"
+
+        # 2) добавяме публичния ключ (без дубликати), през текущата работеща връзка
+        add = (f"umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && "
+               f"(grep -qxF {shlex.quote(pub)} ~/.ssh/authorized_keys || echo {shlex.quote(pub)} >> ~/.ssh/authorized_keys)")
+        r = await s.run(add, 30)
+        if r.get("error") or r.get("exit_code") != 0:
+            new_path.unlink(missing_ok=True)
+            raise RuntimeError("could not add the new public key on the server: " + (r.get("error") or r.get("stderr") or ""))
+
+        # 3) проверка: вход само с новия ключ, със същата проверка на host key
+        test_cfg = {**s.cfg, "key": str(new_path), "password_env": None, "password": None}
+        tester = Server(realname, test_cfg)
+        try:
+            conn = await tester._connect_host(s.active_host or s.cfg["hosts"][0])
+            conn.close()
+        except Exception as e:
+            raise RuntimeError(f"new key was added but login with it failed; profile NOT changed: {type(e).__name__}: {e}")
+
+        # 4) превключваме профила към новия ключ
+        old_key = s.cfg.get("key")
+        async with _PROFILE_LOCK:
+            def change(servers):
+                p = servers[realname]
+                p["key"], p["key_type"], p["key_created"] = str(new_path), key_type, time.time()
+                return True
+            _profile_store(change)
+
+        # 5) по желание: махаме стария публичен ключ от сървъра (само ако е от нашия ключ)
+        removed_old = False
+        if remove_old_key and old_key and os.path.isfile(os.path.expanduser(old_key)):
+            old_pub = asyncssh.read_private_key(os.path.expanduser(old_key)).export_public_key().decode().split()[:2]
+            pattern = " ".join(old_pub)
+            rm = (f"umask 077; grep -vF {shlex.quote(pattern)} ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new; "
+                  f"mv ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys")
+            rr = await SERVERS[realname].run(rm, 30)
+            removed_old = rr.get("exit_code") == 0
+        return json.dumps({"server": realname, "rotated": True, "key_type": key_type,
+                           "new_key_file": new_path.name, "old_key_removed_from_server": removed_old,
+                           "next_rotation_days": [ROTATE_MIN_DAYS, ROTATE_MAX_DAYS],
+                           **({"warning": plan["warning"]} if ephemeral else {})})
+    except Exception as e:
+        return _err(e, name=name)
+
+
+# ---------------- v1.3: настройки на сесията / session settings ----------------
+# Разрешени настройки и граници (мин, макс) — без тях стойността се отказва
+SESSION_LIMITS = {"connect_timeout": (1, 120), "retries": (1, 10), "keepalive_interval": (5, 600),
+                  "keepalive_count_max": (1, 20), "command_timeout": (5, 7200), "max_sessions": (1, 50)}
+
+
+@mcp.tool()
+async def session_configure(server: str = "", connect_timeout: int = 0, retries: int = 0,
+                            keepalive_interval: int = 0, keepalive_count_max: int = 0,
+                            command_timeout: int = 0, max_sessions: int = 0) -> str:
+    """Change connection settings (timeouts, retries, keepalive, parallel sessions) for one server,
+    or for all servers when server is empty. Zero = keep the current value. Called with no values it shows them."""
+    try:
+        asked = {k: v for k, v in dict(connect_timeout=connect_timeout, retries=retries,
+                                       keepalive_interval=keepalive_interval, keepalive_count_max=keepalive_count_max,
+                                       command_timeout=command_timeout, max_sessions=max_sessions).items() if v}
+        for k, v in asked.items():                                          # проверка на границите
+            lo, hi = SESSION_LIMITS[k]
+            if not lo <= int(v) <= hi:
+                raise ValueError(f"{k} must be between {lo} and {hi}")
+        async with _PROFILE_LOCK:
+            init()
+            realname = _resolve_profile_name(server) if server else None
+            if not asked:                                                   # само показваме текущите стойности
+                cfgs = {realname: SERVERS[realname].cfg} if realname else {n: s.cfg for n, s in SERVERS.items()}
+                return json.dumps({n: {k: c.get(k) for k in SESSION_LIMITS} for n, c in cfgs.items()}, indent=2)
+            def change(servers):
+                if realname:
+                    servers[realname].update(asked)                         # само за един сървър
+                return {"scope": realname or "defaults (all servers)", "changed": asked}
+            return json.dumps(_profile_store(change, None if realname else asked))
+    except Exception as e:
+        return _err(e, server=server)
+
+
+# ---------------- v1.3: Tailscale ----------------
+# Статус и устройства се четат от локалния `tailscale` на машината на конектора.
+# Ключовете се управляват през Tailscale API с TAILSCALE_API_KEY (само от средата, никога не се показва).
+TS_API = "https://api.tailscale.com/api/v2"
+
+
+async def _ts_cli(*args):
+    """Пуска `tailscale ...` локално и връща (код, изход)."""
+    proc = await asyncio.create_subprocess_exec("tailscale", *args, stdout=asyncio.subprocess.PIPE,
+                                                stderr=asyncio.subprocess.PIPE)
+    out, err = await asyncio.wait_for(proc.communicate(), timeout=20)
+    return proc.returncode, (out or err).decode(errors="replace")
+
+
+async def _ts_api(method, path, body=None):
+    """Заявка към Tailscale API. Ключът идва само от TAILSCALE_API_KEY и не се връща никъде."""
+    import urllib.request
+    key = os.environ.get("TAILSCALE_API_KEY", "")
+    if not key:
+        raise RuntimeError("TAILSCALE_API_KEY is not set on the connector host (add it as a secret)")
+    tailnet = os.environ.get("TAILSCALE_TAILNET", "-")                    # '-' = тейлнетът на ключа
+    req = urllib.request.Request(f"{TS_API}/tailnet/{tailnet}{path}", method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    def call():
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = r.read()
+            return json.loads(data) if data else {}
+    return await asyncio.to_thread(call)
+
+
+@mcp.tool()
+async def tailscale_status() -> str:
+    """Tailscale on the connector host: version, this device (name, IPs, online), the account it is logged in with, Funnel."""
+    try:
+        code, ver = await _ts_cli("version")
+        code2, st = await _ts_cli("status", "--json")
+        if code2 != 0:
+            raise RuntimeError("tailscale is not running here: " + st.strip()[:200])
+        j = json.loads(st)
+        me = j.get("Self") or {}
+        user = (j.get("User") or {}).get(str(me.get("UserID")), {})
+        _, funnel = await _ts_cli("funnel", "status")
+        return json.dumps({"version": ver.splitlines()[0] if ver else None, "backend_state": j.get("BackendState"),
+                           "device": me.get("HostName"), "dns_name": (me.get("DNSName") or "").rstrip("."),
+                           "ips": me.get("TailscaleIPs"), "online": me.get("Online"),
+                           "account": user.get("LoginName"), "tailnet": (j.get("CurrentTailnet") or {}).get("Name"),
+                           "funnel_on": "Funnel on" in funnel}, indent=2)
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+async def tailscale_devices(online_only: bool = False) -> str:
+    """List devices in the tailnet seen by this host: name, IPs, OS, online, last seen."""
+    try:
+        code, st = await _ts_cli("status", "--json")
+        if code != 0:
+            raise RuntimeError("tailscale is not running here: " + st.strip()[:200])
+        j = json.loads(st)
+        out = []
+        for p in list((j.get("Peer") or {}).values()) + [j.get("Self") or {}]:
+            if online_only and not p.get("Online"):
+                continue
+            out.append({"name": p.get("HostName"), "dns_name": (p.get("DNSName") or "").rstrip("."),
+                        "ips": p.get("TailscaleIPs"), "os": p.get("OS"), "online": p.get("Online"),
+                        "last_seen": p.get("LastSeen"), "this_device": p is j.get("Self")})
+        return json.dumps(sorted(out, key=lambda d: (not d["online"], d["name"] or "")), indent=2)
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+async def tailscale_keys() -> str:
+    """List Tailscale auth keys (id, created, expires, reusable/ephemeral, tags) — never the key values. Needs TAILSCALE_API_KEY."""
+    try:
+        data = await _ts_api("GET", "/keys?all=true")
+        out = []
+        for k in data.get("keys", []):
+            d = k if "created" in k else await _ts_api("GET", f"/keys/{k['id']}")
+            create = ((d.get("capabilities") or {}).get("devices") or {}).get("create") or {}
+            out.append({"id": d.get("id"), "description": d.get("description"), "created": d.get("created"),
+                        "expires": d.get("expires"), "revoked": d.get("revoked"),
+                        "reusable": create.get("reusable"), "ephemeral": create.get("ephemeral"), "tags": create.get("tags")})
+        return json.dumps(out, indent=2)
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+async def tailscale_key_create(description: str = "ssh-connector", reusable: bool = True, ephemeral: bool = True,
+                               tags: list[str] = [], expiry_days: int = 90, confirm: bool = False) -> str:
+    """Create a new Tailscale auth key (needs confirm=true and TAILSCALE_API_KEY). The key value is NOT shown:
+    it is saved to a private file (0600) on the connector host; put it into the TAILSCALE_AUTHKEY secret yourself."""
+    try:
+        if not 1 <= int(expiry_days) <= 90:
+            raise ValueError("expiry_days must be 1..90")
+        body = {"description": description[:50], "expirySeconds": int(expiry_days) * 86400,
+                "capabilities": {"devices": {"create": {"reusable": reusable, "ephemeral": ephemeral,
+                                                        "preauthorized": True, "tags": tags}}}}
+        if not confirm:
+            return json.dumps({"confirmation_required": True, "will_create": body})
+        d = await _ts_api("POST", "/keys", body)
+        KEY_DIR.mkdir(parents=True, exist_ok=True)
+        os.chmod(KEY_DIR, 0o700)
+        f = KEY_DIR / f"tailscale_authkey_{d.get('id')}"
+        f.write_text((d.get("key") or "") + "\n")                          # стойността отива само във файла
+        os.chmod(f, 0o600)
+        return json.dumps({"created": True, "id": d.get("id"), "expires": d.get("expires"),
+                           "saved_to_file": str(f), "key_shown": False,
+                           "next": "copy the file content into the TAILSCALE_AUTHKEY secret, then delete the file"})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+async def tailscale_key_revoke(key_id: str, confirm: bool = False) -> str:
+    """Revoke (delete) a compromised Tailscale auth key by id. Needs confirm=true and TAILSCALE_API_KEY."""
+    try:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{4,64}", key_id):
+            raise ValueError("invalid key id")
+        if not confirm:
+            return json.dumps({"confirmation_required": True, "will_revoke": key_id})
+        await _ts_api("DELETE", f"/keys/{key_id}")
+        return json.dumps({"revoked": key_id})
+    except Exception as e:
+        return _err(e, key_id=key_id)
+
+
+def _git_sha():
+    """Git commit на кода: от GitHub Actions или от локалното хранилище."""
+    sha = os.environ.get("GITHUB_SHA", "")
+    if not sha:
+        try:
+            import subprocess
+            sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(Path(__file__).resolve().parent),
+                                 capture_output=True, text=True, timeout=3).stdout.strip()
+        except Exception:
+            sha = ""
+    return sha or "unknown"
+
+
+@mcp.tool()
+async def health_status() -> str:
+    """Connector health: version, commit, config, servers and their connection state, open shells/jobs/tunnels/watchers."""
+    try:
+        init()
+        cfg_ok, cfg_error = True, None
+    except Exception as e:
+        cfg_ok, cfg_error = False, f"{type(e).__name__}: {e}"
+    return json.dumps({
+        "version": APP_VERSION, "commit": _git_sha(), "config_ok": cfg_ok, "config_error": cfg_error,
+        "servers": {n: {"connected": s._alive(), "active_host": s.active_host, "last_error": s.last_error,
+                        "key_age_days": _key_age_days(s.cfg),
+                        "key_rotation_due": (_key_age_days(s.cfg) or 0) >= ROTATE_MAX_DAYS}
+                    for n, s in SERVERS.items()},
+        "shells": len(SHELLS), "jobs": len(JOBS), "forwards": len(FORWARDS),
+        "watchers": sum(1 for t in WATCHERS.values() if not t.done()), "events": len(EVENTS),
+    }, indent=2)
 
 
 @mcp.tool()
@@ -700,6 +1128,78 @@ async def get_events(since: float = 0, server: str = "", limit: int = 100) -> st
     return json.dumps(ev[-limit:], indent=2)
 
 
+# ---------------- help: всички команди, описание (BG/EN) и шаблон ----------------
+# Всеки шаблон е готов за пускане: сменяте само своите стойности.
+HELP = {
+    "help": ("Списък с всички команди и примери", "List all commands with examples", {}),
+    "version_info": ("Версия, commit и команди", "Version, commit and commands", {}),
+    "health_status": ("Здраве на конектора и връзките", "Connector and connection health", {}),
+    "list_servers": ("Списък със сървърите", "List servers", {"tag": ""}),
+    "server_get": ("Един профил, без тайни", "One profile, no secrets", {"name": "BGDB"}),
+    "server_add": ("Добавя сървър", "Add a server", {"name": "web1", "hosts": ["10.0.0.5"], "user": "bgadmin",
+                   "port": 22, "tags": ["web"], "aliases": [], "password_env": ""}),
+    "server_update": ("Променя сървър", "Update a server", {"name": "web1", "hosts": ["10.0.0.5", "10.0.0.6"]}),
+    "server_rename": ("Преименува сървър", "Rename a server", {"name": "web1", "new_name": "web-main"}),
+    "server_set_primary": ("Сменя основния адрес", "Set the primary address", {"name": "web1", "host": "10.0.0.6"}),
+    "server_failover": ("Превключва към следващия адрес сега", "Switch to the next address now", {"name": "web1"}),
+    "server_test": ("Проверява реална SSH връзка", "Test a real SSH connection", {"name": "web1"}),
+    "credentials_set": ("Задава откъде да се вземе паролата/ключа (без тайни)", "Point to password env / key file (no secrets)",
+                        {"name": "BGDB", "password_env": "BGDB_SSH_PASSWORD", "key_path": ""}),
+    "credentials_rotate": ("Сменя SSH ключа (само с потвърждение)", "Rotate the SSH key (confirm required)",
+                           {"name": "BGDB", "key_type": "ed25519", "confirm": False, "remove_old_key": False}),
+    "session_configure": ("Таймаути, опити, keepalive, паралелни сесии", "Timeouts, retries, keepalive, parallel sessions",
+                          {"server": "BGDB", "connect_timeout": 10, "retries": 3, "command_timeout": 300}),
+    "tailscale_status": ("Tailscale: версия, устройство, акаунт, Funnel", "Tailscale: version, device, account, Funnel", {}),
+    "tailscale_devices": ("Устройства в Tailscale мрежата", "Devices in the tailnet", {"online_only": False}),
+    "tailscale_keys": ("Списък с auth ключове (без стойностите)", "List auth keys (no values)", {}),
+    "tailscale_key_create": ("Нов auth ключ (само с потвърждение)", "New auth key (confirm required)",
+                             {"description": "github-runner", "reusable": True, "ephemeral": True, "expiry_days": 90,
+                              "confirm": False}),
+    "tailscale_key_revoke": ("Отнема компрометиран ключ (само с потвърждение)", "Revoke a compromised key (confirm required)",
+                             {"key_id": "kXXXXXXXXXX", "confirm": False}),
+    "server_remove": ("Маха профил (само с потвърждение)", "Remove a profile (confirm required)",
+                      {"name": "web1", "confirm": False}),
+    "run_command": ("Изпълнява команда", "Run a command", {"server": "BGDB", "command": "uptime", "sudo": False}),
+    "run_on_many": ("Команда на няколко сървъра", "Command on several servers",
+                    {"servers": ["BGDB", "web1"], "command": "df -h"}),
+    "run_on_group": ("Команда на група (таг)", "Command on a tag group", {"tag": "web", "command": "uptime"}),
+    "list_snippets": ("Запазени команди", "Saved commands", {}),
+    "run_snippet": ("Пуска запазена команда", "Run a saved command", {"server": "BGDB", "name": "disk"}),
+    "history": ("История на командите", "Command history", {"limit": 20, "server": ""}),
+    "start_job": ("Дълга задача във фонов режим", "Long background job", {"server": "BGDB", "command": "apt-get update"}),
+    "job_status": ("Състояние на задача", "Job status", {"job_id": "abcd1234", "tail": 50}),
+    "shell_open": ("Отваря терминал", "Open a terminal", {"server": "BGDB"}),
+    "shell_send": ("Пише в терминала", "Type into the terminal", {"shell_id": "abcd1234", "input": "ls -la"}),
+    "shell_close": ("Затваря терминал", "Close a terminal", {"shell_id": "abcd1234"}),
+    "list_shells": ("Отворени терминали", "Open terminals", {}),
+    "sftp_list": ("Файлове в папка", "List a folder", {"server": "BGDB", "path": "/var/log"}),
+    "sftp_read": ("Чете файл", "Read a file", {"server": "BGDB", "path": "/etc/hostname"}),
+    "sftp_write": ("Записва файл", "Write a file", {"server": "BGDB", "path": "/tmp/a.txt", "content": "hello"}),
+    "sftp_upload": ("Качва файл", "Upload a file", {"server": "BGDB", "local_path": "a.txt", "remote_path": "/tmp/a.txt"}),
+    "sftp_download": ("Сваля файл", "Download a file", {"server": "BGDB", "remote_path": "/tmp/a.txt", "local_path": "a.txt"}),
+    "sftp_manage": ("mkdir / remove / rename", "mkdir / remove / rename",
+                    {"server": "BGDB", "action": "mkdir", "path": "/tmp/new", "new_path": ""}),
+    "port_forward": ("Тунел към порт", "Forward a port", {"server": "BGDB", "local_port": 15432, "remote_port": 5432}),
+    "list_forwards": ("Активни тунели", "Active tunnels", {}),
+    "stop_forward": ("Спира тунел", "Stop a tunnel", {"forward_id": "abcd1234"}),
+    "start_watch": ("Следи грешки, сривове, влизания", "Watch errors, crashes, logins", {"server": "BGDB"}),
+    "stop_watch": ("Спира следенето", "Stop watching", {"server": "BGDB"}),
+    "get_events": ("Събрани събития", "Collected events", {"server": "", "limit": 50}),
+}
+
+
+@mcp.tool()
+async def help(command: str = "") -> str:
+    """List every command with a short Bulgarian and English description and a ready-to-run example."""
+    if command:
+        if command not in HELP:
+            return json.dumps({"error": f"unknown command '{command}'", "known": sorted(HELP)})
+        bg, en, ex = HELP[command]
+        return json.dumps({"command": command, "bg": bg, "en": en, "example": ex}, ensure_ascii=False, indent=2)
+    return json.dumps([{"command": k, "bg": v[0], "en": v[1], "example": v[2]} for k, v in HELP.items()],
+                      ensure_ascii=False, indent=2)
+
+
 # ---------------- HTTP mode (ChatGPT, remote Codex) ----------------
 def _credential(headers):
     """Accept 'Authorization: Bearer <t>', 'Authorization: <t>', 'x-api-key: <t>' or 'api-key: <t>'."""
@@ -774,7 +1274,7 @@ if __name__ == "__main__":
     import argparse
 
     p = argparse.ArgumentParser()
-    p.add_argument("-v", "--version", action="version", version=f"ssh-connector {APP_VERSION}")
+    p.add_argument("-v", "--version", action="version", version=f"ssh-connector {APP_VERSION} (commit {_git_sha()[:12]})")
     p.add_argument("--http", action="store_true", help="serve over streamable HTTP instead of stdio")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
