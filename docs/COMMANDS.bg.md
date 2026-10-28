@@ -1,6 +1,6 @@
 # Команди на SSH Connector
 
-Версия: **1.3.0** · Команди: **44**
+Версия: **1.3.3** · Команди: **48**
 
 > Този файл се генерира автоматично от кода (`scripts/gen_commands_docs.py`). Не го редактирайте на ръка.
 
@@ -16,6 +16,7 @@
 - [Данни за достъп](#данни-за-достъп) — `credentials_set`, `credentials_rotate`
 - [Настройки на сесията](#настройки-на-сесията) — `session_configure`
 - [Tailscale](#tailscale) — `tailscale_status`, `tailscale_devices`, `tailscale_keys`, `tailscale_key_create`, `tailscale_key_revoke`
+- [GitHub Codespaces](#github-codespaces) — `codespace_status`, `codespace_start`, `codespace_stop`
 - [Команди](#команди) — `run_command`, `run_on_many`, `run_on_group`, `list_snippets`, `run_snippet`, `history`
 - [Задачи във фонов режим](#задачи-във-фонов-режим) — `start_job`, `job_status`
 - [Интерактивен терминал](#интерактивен-терминал) — `shell_open`, `shell_send`, `shell_close`, `list_shells`
@@ -345,6 +346,55 @@ _Без параметри._
 ```json
 {"tool": "tailscale_key_revoke", "arguments": {"key_id": "kXXXXXXXXXX", "confirm": false}}
 ```
+
+## GitHub Codespaces
+
+### `codespace_status`
+
+Показва всички GitHub Codespaces или един по точно име.
+
+| Параметър | Тип | Задължителен | По подразбиране |
+|---|---|---|---|
+| `name` | str | не | `""` |
+
+**Пример:**
+
+```json
+{"tool": "codespace_status", "arguments": {"name": ""}}
+```
+
+### `codespace_start`
+
+Стартира или събужда Codespace през GitHub API.
+
+| Параметър | Тип | Задължителен | По подразбиране |
+|---|---|---|---|
+| `name` | str | да | |
+
+**Пример:**
+
+```json
+{"tool": "codespace_start", "arguments": {"name": "your-codespace-name"}}
+```
+
+### `codespace_stop`
+
+Спира Codespace само след `confirm=true`.
+
+⚠️ **Изисква изрично потвърждение (`confirm: true`).**
+
+| Параметър | Тип | Задължителен | По подразбиране |
+|---|---|---|---|
+| `name` | str | да | |
+| `confirm` | bool | не | `false` |
+
+**Пример:**
+
+```json
+{"tool": "codespace_stop", "arguments": {"name": "your-codespace-name", "confirm": false}}
+```
+
+**Права:** CLI `gh` трябва да е удостоверен с Codespaces разрешения. Спрян Codespace не може да събуди MCP конектор, работещ единствено вътре в него.
 
 ## Команди
 
