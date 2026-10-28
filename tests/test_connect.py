@@ -202,9 +202,35 @@ async def main():
 
     # Only safe metadata is printed; no tokens, host credentials, URLs, or logs.
     failed = set(problems)
-    print(json.dumps([{"test": item["test"], "seconds": item["seconds"],
-                       "passed": item["test"] not in failed}
-                      for item in out], indent=2, ensure_ascii=False))
+    # Match aggregate assertion names back to the individual safe test names.
+    aliases = {
+        "shell lifecycle": ("shell_send pwd", "shell_close"),
+        "sftp_list": ("sftp_list /",),
+        "sftp_read": ("sftp_read readme",),
+        "sftp_manage": ("sftp_manage stat",),
+        "HTTP auth/MCP (44 tools)": ("http mode",),
+        "Claude/Codex plugin launcher": ("plugin launcher",),
+        "installer + public tunnel": ("server installer + public tunnel",),
+    }
+    failed_tests = set(failed)
+    for name in failed:
+        failed_tests.update(aliases.get(name, ()))
+    safe_checks = [
+        {"test": item["test"], "seconds": item["seconds"],
+         "passed": item["test"] not in failed_tests}
+        for item in out
+    ]
+    # Optional separate report: only static test labels, durations, PASS/FAIL.
+    # This file can safely become a GitHub Actions artifact in a PUBLIC repo.
+    report_path = os.environ.get("SSH_CONNECTOR_CI_REPORT", "")
+    if report_path:
+        from pathlib import Path
+        report_file = Path(report_path)
+        report_file.parent.mkdir(parents=True, exist_ok=True)
+        report_file.write_text(json.dumps({"schema_version": 1, "checks": safe_checks},
+                                          indent=2, ensure_ascii=False) + "\n",
+                               encoding="utf-8")
+    print(json.dumps(safe_checks, indent=2, ensure_ascii=False))
     if failed:
         print("Integration checks failed: " + ", ".join(sorted(failed)), file=sys.stderr)
         raise SystemExit(1)
