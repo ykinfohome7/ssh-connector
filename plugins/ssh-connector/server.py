@@ -132,12 +132,12 @@ class Server:
             self.last_error = "; ".join(errors)
             raise ConnectionError(f"{self.name}: all addresses failed -> {self.last_error}")
 
-    async def run(self, command, timeout):
+    async def run(self, command, timeout, input=None):
         async with self.sem:
             for attempt in range(2):  # one transparent reconnect if the connection died
                 conn = await self.get_conn(force=attempt > 0)
                 try:
-                    r = await asyncio.wait_for(conn.run(command, check=False), timeout=timeout)
+                    r = await asyncio.wait_for(conn.run(command, check=False, input=input), timeout=timeout)
                     res = {"server": self.name, "host": self.active_host, "exit_code": r.exit_status,
                            "stdout": r.stdout, "stderr": r.stderr}
                     HISTORY.append({"ts": time.time(), "server": self.name, "command": command,
@@ -468,7 +468,7 @@ async def server_failover(name: str) -> str:
             raise ValueError("Profile has only one address; add a fallback with server_update")
         current = s.active_host or hosts[0]
         start = (hosts.index(current) + 1) if current in hosts else 0
-        order = hosts[start:] + hosts[:start]                              # следващият адрес е пръв
+        order = hosts[start:] + hosts[:start]                              # следващият адрес е първ
         order = [h for h in order if h != current] or order
         async with s.lock:
             if s.conn:
@@ -612,6 +612,236 @@ async def credentials_rotate(name: str, key_type: str = "ed25519", confirm: bool
                            **({"warning": plan["warning"]} if ephemeral else {})})
     except Exception as e:
         return _err(e, name=name)
+
+
+# ---------------- v1.3.2: sudo парола / sudo password ----------------
+# Ти решаваш откъде идва паролата: написваш я сам, взима се от профила или се генерира с избрани от теб
+# дължина и символи. Паролата НИКОГА не минава през чата: пази се само в паметта на конектора
+# (или в променлива на средата), а се въвежда/показва на еднократна https страница.
+import html as _html
+import secrets as _secrets
+import string as _string
+import urllib.parse as _urlparse
+
+_SUDO_PROMPT = re.compile(r"(\[sudo\] password for [^:]*:|^\s*Password:\s*$)", re.I | re.M)  # въпросът за парола
+SUDO_SECRETS = {}                     # {сървър: парола} — само в паметта, изчезва при рестарт или mode="clear"
+SUDO_LINKS = {}                       # еднократни връзки {nonce: {...}}
+SUDO_LINK_TTL = 120                   # връзката важи 2 минути
+SUDO_LINK_TRIES = 3                   # до 3 опита за грешна парола на една връзка
+SUDO_LEN = (16, 128)                  # граници за генерираната дължина (избираш я ти)
+SUDO_CHARSETS = {"lower": _string.ascii_lowercase, "upper": _string.ascii_uppercase,
+                 "digits": _string.digits, "symbols": "!#$%&()*+,-./:;<=>?@[]^_{|}~"}
+
+
+def _sudo_secret(s):
+    """Паролата за sudo: първо от паметта (написана/генерирана), после от профила (sudo_password_env)."""
+    if s.name in SUDO_SECRETS:
+        return SUDO_SECRETS[s.name]
+    env = s.cfg.get("sudo_password_env")
+    return os.getenv(env) if env and os.getenv(env) else None
+
+
+def _sudo_needed(name):
+    """Отговор, когато сървърът иска парола, а такава не е избрана — даваме избора на потребителя."""
+    return {"sudo_password_required": True,
+            "choose_one": {"prompt": f"sudo_password(server='{name}', mode='prompt')  -> you type it on a one-time page",
+                           "profile": f"sudo_password(server='{name}', mode='profile', password_env='MY_ENV_NAME')",
+                           "generate": f"sudo_password(server='{name}', mode='generate', length=<you choose>, "
+                                       f"charset='<lower,upper,digits,symbols>')"}}
+
+
+async def _sudo_run(s, command, timeout):
+    """Изпълнява команда със sudo. С парола: sudo -S (паролата по stdin, не в командата). Без: sudo -n."""
+    secret = _sudo_secret(s)
+    if secret is None:
+        r = await s.run(f"sudo -n sh -c {shlex.quote(command)}", timeout)
+        if "password is required" in (r.get("stderr") or "") or "terminal is required" in (r.get("stderr") or ""):
+            r.update(_sudo_needed(s.name))
+        return r
+    r = await s.run(f"sudo -S -p '' sh -c {shlex.quote(command)}", timeout, input=secret + "\n")
+    if re.search(r"incorrect password|Sorry, try again", r.get("stderr") or ""):
+        r["sudo_password_wrong"] = True                                    # грешна парола — избери отново
+        r.update(_sudo_needed(s.name))
+    return r
+
+
+def _generate_password(length, charset):
+    """Случайна парола с ТВОИТЕ дължина и символи; поне по един знак от всеки избран вид."""
+    classes = [c.strip().lower() for c in (charset or "").split(",") if c.strip()]
+    if not classes:
+        raise ValueError("charset is required: any of lower,upper,digits,symbols (comma separated) — you choose")
+    bad = [c for c in classes if c not in SUDO_CHARSETS]
+    if bad:
+        raise ValueError(f"unknown charset {bad}; allowed: {', '.join(SUDO_CHARSETS)}")
+    if not SUDO_LEN[0] <= int(length) <= SUDO_LEN[1]:
+        raise ValueError(f"length is required and must be {SUDO_LEN[0]}..{SUDO_LEN[1]} — you choose")
+    pool = "".join(SUDO_CHARSETS[c] for c in dict.fromkeys(classes))
+    while True:                                                            # секретен генератор (secrets)
+        pw = "".join(_secrets.choice(pool) for _ in range(int(length)))
+        if all(any(ch in SUDO_CHARSETS[c] for ch in pw) for c in classes):
+            return pw
+
+
+def _public_url():
+    base = os.environ.get("SSH_CONNECTOR_PUBLIC_URL", "").rstrip("/")
+    if not base.startswith("https://"):
+        raise ValueError("Secure links need SSH_CONNECTOR_PUBLIC_URL = the connector's https address "
+                         "(e.g. the Tailscale Funnel URL) and HTTP mode (--http)")
+    return base
+
+
+def _new_link(kind, server, **data):
+    """Еднократна връзка: случаен 256-битов ключ, важи 2 минути, после се изтрива."""
+    now = time.time()
+    for k in [k for k, v in SUDO_LINKS.items() if v["expires"] < now]:
+        SUDO_LINKS.pop(k, None)
+    nonce = _secrets.token_urlsafe(32)
+    SUDO_LINKS[nonce] = {"kind": kind, "server": server, "expires": now + SUDO_LINK_TTL, "tries": 0, **data}
+    return f"{_public_url()}/sudo/{nonce}"
+
+
+async def _verify_sudo(s, secret):
+    """Проверява паролата на сървъра (sudo -k -v), без да изпълнява друго."""
+    r = await s.run("sudo -k -S -p '' -v", 30, input=secret + "\n")
+    return r.get("exit_code") == 0
+
+
+async def _apply_password(s, new_pw):
+    """Задава новата парола на SSH потребителя на сървъра (chpasswd през sudo)."""
+    user = s.cfg.get("user")
+    current = _sudo_secret(s)
+    if current is not None:
+        r = await s.run("sudo -S -p '' chpasswd", 30, input=f"{current}\n{user}:{new_pw}\n")
+    else:
+        r = await s.run("sudo -n chpasswd", 30, input=f"{user}:{new_pw}\n")
+    if r.get("exit_code") != 0:
+        raise RuntimeError("could not set the password on the server: " + (r.get("error") or r.get("stderr") or "")[:300])
+
+
+@mcp.tool()
+async def sudo_password(server: str, mode: str, length: int = 0, charset: str = "", apply_on_server: bool = False,
+                        password_env: str = "") -> str:
+    """Choose the sudo password of a server. YOU decide how; the password never appears in the chat or logs.
+    mode='prompt'  : one-time https link (2 min) where you type the password yourself; it is checked on the server.
+    mode='profile' : use the preset value from the environment variable named in the profile
+                     (password_env='NAME' saves the NAME as sudo_password_env; never the value).
+    mode='generate': random password with the length (16-128) and charset (lower,upper,digits,symbols) YOU choose;
+                     shown once on a one-time link; with apply_on_server=true it is set on the server only after you
+                     press 'I saved it' on that page.
+    mode='status'  : which source is active (never the value).  mode='clear': forget the password from memory."""
+    try:
+        s = srv(server)
+        name = s.name
+        if mode == "status":
+            env = s.cfg.get("sudo_password_env")
+            return json.dumps({"server": name, "source": "memory" if name in SUDO_SECRETS else
+                               ("profile" if env and os.getenv(env) else None),
+                               "sudo_password_env": env, "sudo_password_env_set": bool(env and os.getenv(env)),
+                               "open_links": sum(1 for v in SUDO_LINKS.values()
+                                                 if v["server"] == name and v["expires"] > time.time())})
+        if mode == "clear":
+            had = SUDO_SECRETS.pop(name, None) is not None
+            for k in [k for k, v in SUDO_LINKS.items() if v["server"] == name]:
+                SUDO_LINKS.pop(k, None)
+            return json.dumps({"server": name, "cleared": had})
+        if mode == "prompt":
+            link = _new_link("prompt", name)
+            return json.dumps({"server": name, "link": link, "expires_in_s": SUDO_LINK_TTL,
+                               "say": "Open the link and type the password there — never in the chat."})
+        if mode == "profile":
+            if password_env:
+                if not _ENV_NAME.fullmatch(password_env):
+                    raise ValueError("password_env must be the NAME of an environment variable, not the password")
+                async with _PROFILE_LOCK:
+                    realname = _resolve_profile_name(name)
+                    def change(servers):
+                        servers[realname]["sudo_password_env"] = password_env
+                        return True
+                    _profile_store(change)
+                s.cfg["sudo_password_env"] = password_env
+            env = s.cfg.get("sudo_password_env")
+            if not env:
+                raise ValueError("No sudo_password_env in the profile: pass password_env='NAME'")
+            if not os.getenv(env):
+                raise ValueError(f"Environment variable {env} is empty on the connector host (set it as a secret)")
+            SUDO_SECRETS.pop(name, None)                                   # профилът става активен
+            ok = await _verify_sudo(s, os.getenv(env))
+            return json.dumps({"server": name, "source": "profile", "sudo_password_env": env, "verified": ok})
+        if mode == "generate":
+            pw = _generate_password(length, charset)
+            link = _new_link("reveal", name, value=pw, apply=bool(apply_on_server))
+            return json.dumps({"server": name, "link": link, "expires_in_s": SUDO_LINK_TTL,
+                               "length": int(length), "charset": charset, "apply_on_server": bool(apply_on_server),
+                               "say": "Open the link, save the password, then press the button. "
+                                      "Nothing changes on the server before that."})
+        raise ValueError("mode must be prompt, profile, generate, status or clear")
+    except Exception as e:
+        return _err(e, server=server)
+
+
+def _sudo_html(title, body):
+    return ("<!doctype html><html lang=bg><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+            f"<title>{_html.escape(title)}</title><style>body{{font:16px system-ui;max-width:28rem;margin:2rem auto;"
+            "padding:0 1rem}input,button{font:inherit;padding:.6rem;width:100%;box-sizing:border-box;margin:.4rem 0}"
+            "code{display:block;word-break:break-all;background:#eee;padding:.8rem;font-size:1.05rem}</style>"
+            f"<h2>{_html.escape(title)}</h2>{body}</html>").encode()
+
+
+async def sudo_page(scope, receive, send):
+    """Еднократната https страница: GET показва формата/паролата, POST записва/прилага. Без токен — ключът е в адреса."""
+    nonce = scope.get("path", "")[len("/sudo/"):]
+    link = SUDO_LINKS.get(nonce)
+
+    async def reply(status, title, body):
+        await send({"type": "http.response.start", "status": status, "headers": [
+            (b"content-type", b"text/html; charset=utf-8"), (b"cache-control", b"no-store"),
+            (b"referrer-policy", b"no-referrer"), (b"x-frame-options", b"DENY"),
+            (b"content-security-policy", b"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'")]})
+        await send({"type": "http.response.body", "body": _sudo_html(title, body)})
+
+    if not link or link["expires"] < time.time():
+        SUDO_LINKS.pop(nonce, None)
+        return await reply(410, "Връзката е изтекла", "<p>Поискай нова връзка в чата.</p>")
+    s = srv(link["server"])
+    if scope.get("method") == "GET":
+        if link["kind"] == "prompt":
+            return await reply(200, f"sudo парола: {s.name}",
+                               "<form method=post><input type=password name=pw autocomplete=off autofocus required>"
+                               "<button>Изпрати</button></form><p>Паролата отива само към конектора.</p>")
+        btn = "Записах я — приложи на сървъра" if link["apply"] else "Записах я"
+        return await reply(200, f"Нова парола: {s.name}",
+                           f"<p>Запиши я сега — показва се само веднъж:</p><code>{_html.escape(link['value'])}</code>"
+                           f"<form method=post><button>{btn}</button></form>")
+    body = b""
+    while True:                                                            # четем формата (POST)
+        msg = await receive()
+        body += msg.get("body", b"")
+        if len(body) > 4096:
+            return await reply(413, "Твърде дълго", "")
+        if not msg.get("more_body"):
+            break
+    try:
+        if link["kind"] == "prompt":
+            pw = (_urlparse.parse_qs(body.decode(errors="replace")).get("pw") or [""])[0]
+            if not pw or not await _verify_sudo(s, pw):
+                link["tries"] += 1
+                if link["tries"] >= SUDO_LINK_TRIES:
+                    SUDO_LINKS.pop(nonce, None)
+                    return await reply(403, "Грешна парола", "<p>Връзката е затворена. Поискай нова в чата.</p>")
+                return await reply(403, "Грешна парола", "<p>Опитай отново: презареди страницата.</p>")
+            SUDO_SECRETS[s.name] = pw
+            SUDO_LINKS.pop(nonce, None)
+            return await reply(200, "Готово ✅", "<p>Паролата е проверена и е в паметта на конектора. "
+                                                 "Върни се в чата и напиши „готово“.</p>")
+        if link["apply"]:
+            await _apply_password(s, link["value"])
+        SUDO_SECRETS[s.name] = link["value"]
+        SUDO_LINKS.pop(nonce, None)
+        return await reply(200, "Готово ✅", "<p>" + ("Паролата е зададена на сървъра. " if link["apply"] else "")
+                           + "Върни се в чата и напиши „готово“.</p>")
+    except Exception as e:
+        SUDO_LINKS.pop(nonce, None)
+        return await reply(500, "Грешка", f"<p>{_html.escape(type(e).__name__)}: нищо не е запазено.</p>")
 
 
 # ---------------- v1.3: настройки на сесията / session settings ----------------
@@ -812,13 +1042,15 @@ async def health_status() -> str:
 
 @mcp.tool()
 async def run_command(server: str, command: str, timeout: int = 0, sudo: bool = False) -> str:
-    """Run a shell command on a server. Reconnects / fails over automatically. sudo=True runs it with sudo -n."""
+    """Run a shell command on a server. Reconnects / fails over automatically. sudo=True uses the sudo password
+    chosen with sudo_password (never shown), or sudo -n; if a password is needed it says so instead of hanging."""
     try:
         s = srv(server)
         t = timeout or s.cfg.get("command_timeout", 120)
-        if sudo:
-            command = f"sudo -n sh -c {shlex.quote(command)}"
-        return json.dumps(await s.run(command, t), indent=2)
+        if not sudo:
+            return json.dumps(await s.run(command, t), indent=2)
+        res = await _sudo_run(s, command, t)
+        return json.dumps(res, indent=2)
     except Exception as e:
         return _err(e, server=server)
 
@@ -924,17 +1156,33 @@ async def shell_open(server: str, cols: int = 200, rows: int = 50) -> str:
 
 
 @mcp.tool()
-async def shell_send(shell_id: str, input: str, wait: float = 5, enter: bool = True) -> str:
-    """Send input to an open shell and return the output. Use input='\\x03' with enter=False for Ctrl+C."""
+async def shell_send(shell_id: str, input: str = "", wait: float = 5, enter: bool = True,
+                     use_sudo_password: bool = False) -> str:
+    """Send input to an open shell and return the output. Use input='\\x03' with enter=False for Ctrl+C.
+    When the output shows a password prompt ("sudo_prompt": true), call again with use_sudo_password=true:
+    the connector types the password chosen with sudo_password itself; it never appears in the chat."""
     sh = SHELLS.get(shell_id)
     if not sh:
         return json.dumps({"error": "unknown shell_id"})
     proc = sh["proc"]
     try:
-        proc.stdin.write(input + ("\n" if enter else ""))
+        if use_sudo_password:
+            secret = _sudo_secret(srv(sh["server"]))
+            if secret is None:                                             # няма избрана парола — питаме потребителя
+                return json.dumps({"shell_id": shell_id, **_sudo_needed(srv(sh["server"]).name)})
+            proc.stdin.write(secret + "\n")                               # паролата отива само към сървъра
+            logged = "[shell] <sudo password>"
+        else:
+            proc.stdin.write(input + ("\n" if enter else ""))
+            logged = f"[shell] {input}"
         out = await _read_until_idle(proc, wait)
-        HISTORY.append({"ts": time.time(), "server": sh["server"], "command": f"[shell] {input}", "exit_code": None})
-        return json.dumps({"shell_id": shell_id, "output": out, "closed": proc.exit_status is not None})
+        HISTORY.append({"ts": time.time(), "server": sh["server"], "command": logged, "exit_code": None})
+        res = {"shell_id": shell_id, "output": out, "closed": proc.exit_status is not None}
+        if _SUDO_PROMPT.search(out[-300:]):                                # сървърът чака парола
+            res["sudo_prompt"] = True
+            res["next"] = ("shell_send(use_sudo_password=true)" if _sudo_secret(srv(sh["server"])) is not None
+                           else "choose a password first: sudo_password(server, mode='prompt'|'profile'|'generate')")
+        return json.dumps(res)
     except Exception as e:
         SHELLS.pop(shell_id, None)
         return _err(e, shell_id=shell_id, note="shell closed; open a new one")
@@ -1163,6 +1411,10 @@ HELP = {
                         {"name": "BGDB", "password_env": "BGDB_SSH_PASSWORD", "key_path": ""}),
     "credentials_rotate": ("Сменя SSH ключа (само с потвърждение)", "Rotate the SSH key (confirm required)",
                            {"name": "BGDB", "key_type": "ed25519", "confirm": False, "remove_old_key": False}),
+    "sudo_password": ("sudo парола: напиши / от профила / генерирай (ти избираш дължина и символи)",
+                      "sudo password: type it / from profile / generate (you choose length and charset)",
+                      {"server": "BGDB", "mode": "prompt", "length": 0, "charset": "", "apply_on_server": False,
+                       "password_env": ""}),
     "session_configure": ("Таймаути, опити, keepalive, паралелни сесии", "Timeouts, retries, keepalive, parallel sessions",
                           {"server": "BGDB", "connect_timeout": 10, "retries": 3, "command_timeout": 300}),
     "tailscale_status": ("Tailscale: версия, устройство, акаунт, Funnel", "Tailscale: version, device, account, Funnel", {}),
@@ -1185,7 +1437,9 @@ HELP = {
     "start_job": ("Дълга задача във фонов режим", "Long background job", {"server": "BGDB", "command": "apt-get update"}),
     "job_status": ("Състояние на задача", "Job status", {"job_id": "abcd1234", "tail": 50}),
     "shell_open": ("Отваря терминал", "Open a terminal", {"server": "BGDB"}),
-    "shell_send": ("Пише в терминала", "Type into the terminal", {"shell_id": "abcd1234", "input": "ls -la"}),
+    "shell_send": ("Пише в терминала (use_sudo_password=true пише sudo паролата)",
+                   "Type into the terminal (use_sudo_password=true types the sudo password)",
+                   {"shell_id": "abcd1234", "input": "ls -la", "use_sudo_password": False}),
     "shell_close": ("Затваря терминал", "Close a terminal", {"shell_id": "abcd1234"}),
     "list_shells": ("Отворени терминали", "Open terminals", {}),
     "sftp_list": ("Файлове в папка", "List a folder", {"server": "BGDB", "path": "/var/log"}),
@@ -1259,6 +1513,9 @@ def http_app(token):
             path = scope.get("path", "")
             method = scope.get("method", "")
             headers = dict(scope.get("headers") or [])
+            if path.startswith("/sudo/") and len(path) > 40:            # еднократна страница за sudo парола
+                await sudo_page(scope, receive, send)
+                return
             if path == "/health":
                 await send({"type": "http.response.start", "status": 200,
                             "headers": [(b"content-type", b"text/plain")]})
