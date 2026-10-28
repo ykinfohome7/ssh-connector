@@ -75,52 +75,35 @@ async def plugin_check():
 
 
 async def installer_check():
-    """Run install-server.sh like a user would on a fresh server, then use it locally and over the public tunnel."""
-    import re
+    """Install the loopback-only systemd backend; no public tunnel or root auto-login."""
     import subprocess
-    import httpx
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
     def sh(*cmd, **kw):
         return subprocess.run(list(cmd), capture_output=True, text=True, **kw)
 
-    inst = sh("sudo", "env", f"SRC={REPO}", "bash", os.path.join(REPO, "install-server.sh"), timeout=900)
-    sh("sudo", "cp", os.path.join(REPO, "tests", "servers.test.yaml"), "/etc/ssh-connector/servers.yaml")
+    inst = sh("sudo", "env", f"SRC={REPO}", "bash",
+              os.path.join(REPO, "install-server.sh"), timeout=900)
+    sh("sudo", "cp", os.path.join(REPO, "tests", "servers.test.yaml"),
+       "/etc/ssh-connector/servers.yaml")
     sh("sudo", "chown", "root:sshconn", "/etc/ssh-connector/servers.yaml")
     sh("sudo", "chmod", "640", "/etc/ssh-connector/servers.yaml")
     sh("sudo", "systemctl", "restart", "ssh-connector")
     await asyncio.sleep(8)
     token = sh("sudo", "cat", "/etc/ssh-connector/env").stdout.strip().split("=", 1)[1]
-    info = sh("sudo", "/usr/local/bin/ssh-connector-info").stdout
-    m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", info)
-    url = m.group(0) if m else None
     out = {"installer_exit": inst.returncode,
            "service": sh("systemctl", "is-active", "ssh-connector").stdout.strip(),
-           "tunnel_service": sh("systemctl", "is-active", "ssh-connector-tunnel").stdout.strip(),
-           "public_url_found": bool(url)}
-    async with streamablehttp_client("http://127.0.0.1:8765/mcp", headers={"Authorization": "Bearer " + token}) as (r, w, _):
-        async with ClientSession(r, w) as s:
-            await s.initialize()
-            res = await s.call_tool("run_command", {"server": "rebex", "command": "ls"})
+           "tunnel_service": sh("systemctl", "is-active",
+                                "ssh-connector-tunnel").stdout.strip()}
+    async with streamablehttp_client(
+            "http://127.0.0.1:8765/mcp",
+            headers={"Authorization": "Bearer " + token}) as (r, w, _):
+        async with ClientSession(r, w) as session:
+            await session.initialize()
+            res = await session.call_tool("run_command", {"server": "rebex",
+                                                        "command": "ls"})
     out["local_call"] = json.loads(res.content[0].text)
-    if url:
-        status = None
-        for _ in range(20):  # quick tunnels need a few seconds to become reachable
-            try:
-                async with httpx.AsyncClient(timeout=10) as c:
-                    status = (await c.post(url + "/mcp", json={})).status_code
-                if status == 401:
-                    break
-            except Exception as e:
-                status = f"{type(e).__name__}"
-            await asyncio.sleep(3)
-        out["public_without_token"] = status
-        async with streamablehttp_client(f"{url}/{token}/mcp") as (r, w, _):
-            async with ClientSession(r, w) as s:
-                await s.initialize()
-                res = await s.call_tool("run_command", {"server": "rebex", "command": "ls"})
-        out["public_chatgpt_style_call"] = json.loads(res.content[0].text)
     return json.dumps(out)
 
 
@@ -144,7 +127,7 @@ async def main():
     out.append(await step("list_servers", server.list_servers()))
     out.append(await step("http mode", http_check()))
     out.append(await step("plugin launcher", plugin_check()))
-    out.append(await step("server installer + public tunnel", installer_check()))
+    out.append(await step("server installer (local-only)", installer_check()))
     # Fail CI on returned errors as well as raised exceptions. Do not print raw
     # results: install logs / HTTP clients may contain credential-bearing URLs.
     problems = []
@@ -190,15 +173,12 @@ async def main():
             and plugin.get("launcher_call", {}).get("exit_code") == 0,
             "Claude/Codex plugin launcher")
 
-    install = results.get("server installer + public tunnel", {})
+    install = results.get("server installer (local-only)", {})
     require(isinstance(install, dict) and install.get("installer_exit") == 0
             and install.get("service") == "active"
-            and install.get("tunnel_service") == "active"
-            and install.get("public_url_found") is True
-            and install.get("public_without_token") == 401
-            and install.get("local_call", {}).get("exit_code") == 0
-            and install.get("public_chatgpt_style_call", {}).get("exit_code") == 0,
-            "installer + public tunnel")
+            and install.get("tunnel_service") != "active"
+            and install.get("local_call", {}).get("exit_code") == 0,
+            "installer local-only")
 
     # Only safe metadata is printed; no tokens, host credentials, URLs, or logs.
     failed = set(problems)
@@ -210,7 +190,7 @@ async def main():
         "sftp_manage": ("sftp_manage stat",),
         "HTTP auth/MCP (44 tools)": ("http mode",),
         "Claude/Codex plugin launcher": ("plugin launcher",),
-        "installer + public tunnel": ("server installer + public tunnel",),
+        "installer local-only": ("server installer (local-only)",),
     }
     failed_tests = set(failed)
     for name in failed:
