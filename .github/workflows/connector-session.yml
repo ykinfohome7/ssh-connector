@@ -47,7 +47,7 @@ jobs:
         if: steps.ts.outputs.configured == 'true'
         run: |
           tailscale status
-          tailscale ping --timeout=4s 100.65.111.82 || echo "::warning::BGDB not reachable on Tailscale (may be asleep or access rules may deny it)."
+          tailscale ping --timeout=4s 100.98.41.79 || echo "::warning::BGDB not reachable on Tailscale (may be asleep or access rules may deny it)."
       - name: Run connector session
         env:
           HOURS: ${{ github.event.inputs.hours || '5' }}
