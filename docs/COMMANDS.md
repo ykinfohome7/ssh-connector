@@ -1,6 +1,6 @@
 # SSH Connector commands
 
-Version: **1.3.0** · Commands: **44**
+Version: **1.3.3** · Commands: **48**
 
 > Generated from the code by `scripts/gen_commands_docs.py` — do not edit by hand.
 > _Генерира се автоматично от кода — не редактирайте на ръка._
@@ -18,6 +18,7 @@ Passwords, keys and tokens are **never** shown or stored — only environment-va
 - [Credentials](#credentials) — `credentials_set`, `credentials_rotate`
 - [Session settings](#session-settings) — `session_configure`
 - [Tailscale](#tailscale) — `tailscale_status`, `tailscale_devices`, `tailscale_keys`, `tailscale_key_create`, `tailscale_key_revoke`
+- [GitHub Codespaces](#github-codespaces) — `codespace_status`, `codespace_start`, `codespace_stop`
 - [Commands](#commands) — `run_command`, `run_on_many`, `run_on_group`, `list_snippets`, `run_snippet`, `history`
 - [Background jobs](#background-jobs) — `start_job`, `job_status`
 - [Interactive terminal](#interactive-terminal) — `shell_open`, `shell_send`, `shell_close`, `list_shells`
@@ -347,6 +348,55 @@ Revoke a compromised key (confirm required)
 ```json
 {"tool": "tailscale_key_revoke", "arguments": {"key_id": "kXXXXXXXXXX", "confirm": false}}
 ```
+
+## GitHub Codespaces
+
+### `codespace_status`
+
+List GitHub Codespaces or inspect one by exact name.
+
+| Parameter | Type | Required | Default |
+|---|---|---|---|
+| `name` | str | no | `""` |
+
+**Example:**
+
+```json
+{"tool": "codespace_status", "arguments": {"name": ""}}
+```
+
+### `codespace_start`
+
+Start/wake an existing GitHub Codespace via GitHub API.
+
+| Parameter | Type | Required | Default |
+|---|---|---|---|
+| `name` | str | yes | |
+
+**Example:**
+
+```json
+{"tool": "codespace_start", "arguments": {"name": "your-codespace-name"}}
+```
+
+### `codespace_stop`
+
+Stop Codespace only after `confirm=true`.
+
+⚠️ **Requires explicit confirmation (`confirm: true`).** _Изисква потвърждение._
+
+| Parameter | Type | Required | Default |
+|---|---|---|---|
+| `name` | str | yes | |
+| `confirm` | bool | no | `false` |
+
+**Example:**
+
+```json
+{"tool": "codespace_stop", "arguments": {"name": "your-codespace-name", "confirm": false}}
+```
+
+**Permissions:** The connector host must have an authenticated `gh` CLI with Codespaces rights. A stopped Codespace cannot wake an MCP host running exclusively inside itself.
 
 ## Commands
 
