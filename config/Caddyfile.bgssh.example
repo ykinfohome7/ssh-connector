@@ -1,0 +1,15 @@
+# Deploy on a trusted, publicly reachable Debian server, not on a GitHub Actions runner.
+# ClouDNS A record for bgssh.abrdns.com must point to THIS server's public IPv4.
+# TCP 443 must be reachable here. Caddy provisions its own certificate by default
+# (or configure TLS with private certificate files installed locally, never in Git).
+#
+# Start the ssh-connector MCP backend bound only to 127.0.0.1:8765.
+# The backend itself must enforce a strong MCP token / authentication.
+#
+# This is a deployment TEMPLATE; saving it in GitHub does not expose any port.
+bgssh.abrdns.com {
+    @privateHealth path /health
+    respond @privateHealth 404
+
+    reverse_proxy 127.0.0.1:8765
+}
