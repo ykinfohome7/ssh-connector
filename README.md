@@ -18,6 +18,14 @@ Local MCP server that lets **Claude Code** and **ChatGPT Codex** work directly o
 - Command history
 - Up to 10 parallel sessions per server
 
+## CI diagnostic logs / Диагностични логове
+Every GitHub Actions `connection-test` run creates a **sanitized** diagnostic summary in the Actions **Step summary**.
+Download the `ssh-connector-ci-<run-id>-<attempt>` artifact for `summary.json` and `summary.md` (retained for **7 days**).
+The report records individual test names, PASS/FAIL, durations, and CI stage outcomes.
+The repository is PUBLIC: reports intentionally contain **no raw SSH output, bearer tokens, hostnames, IP addresses, command data, or authentication URLs**.
+Raw SSH integration output stays only on the disposable GitHub runner; CI never commits or uploads it.
+If a test crashes before producing results, the summary reports the stage outcome without exporting its exception text.
+
 ## 1. Your server list
 Create `~/.ssh-connector/servers.yaml` from [`servers.example.yaml`](servers.example.yaml)
 (or point `SSH_CONNECTOR_CONFIG` to another file). Needs `python3` on the machine.
