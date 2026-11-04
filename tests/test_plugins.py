@@ -39,6 +39,12 @@ def main():
         info = json.loads(out.stdout.strip().splitlines()[-1])
         assert info["v"] == version, f"installed plugin reports {info['v']}, expected {version}"
         assert info["n"] == 56, info  # 48 + 8 read-only SNMP tools
+    # Изолиран инсталиран плъгин през истинския MCP stdio протокол (виж tests/test_installed_plugin.py)
+    import asyncio
+    sys.path.insert(0, str(ROOT / "tests"))
+    import test_installed_plugin
+    report = asyncio.run(test_installed_plugin.main())
+    assert report["launcher"]["tools"] == info["n"], report
     print(f"plugin tests PASSED (version {version}, commands {info['n']})")
 
 
