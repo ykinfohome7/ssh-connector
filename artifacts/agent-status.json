@@ -1,69 +1,52 @@
 {
   "schema": "kssh-agent-status/1",
-  "updated_utc": "2026-11-04T20:46:00Z",
+  "updated_utc": "2026-11-04T21:10:00Z",
   "agents": [
     {
       "agent_id": "CLAUDE_CODE",
-      "task_id": "monitor-hardening-snmp",
-      "run_id": "claude-20261104-02",
+      "task_id": "monitor-engine-round2",
+      "run_id": "claude-20261104-03",
       "branch": "claude/monitor-hardening-snmp",
-      "issues": [
-        11,
-        10
-      ],
-      "related_prs": [
-        12
-      ],
+      "issues": [11, 10],
+      "related_prs": [12, 14],
       "state": "in_review",
-      "current_task": "PR #12 follow-up: H3, M1-M6, L1-L3, SNMP module, CI",
+      "current_task": "Monitoring engine round 2: state store, notifier, interface checks, deadlines, tests",
       "results": {
         "local_tests": {
-          "command": "python3 -m unittest -v tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py",
+          "command": "python3 -W error::ResourceWarning -m unittest tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py",
           "python": "3.13.18",
-          "ran": 69,
+          "ran": 98,
           "failed": 0,
           "skipped": 0
         },
-        "ci": "monitoring tests not in CI yet (workflow change blocked)"
+        "mutation_check": {"injected": 6, "caught": 6},
+        "ci": {
+          "last_run": "https://github.com/ykinfohome7/ssh-connector/actions/runs/41911057412/job/126858399970",
+          "sha": "282550196b0a51476668434a3aafe0e26d661708",
+          "conclusion": "success",
+          "covers_monitoring_tests": false
+        }
       },
       "blocked": [
-        {
-          "item": "PySNMP backend / SNMPv3 SHA+DES",
-          "status": "BLOCKED_NOT_TESTED",
-          "reason": "PyPI HTTP 403 in dev environment"
-        },
-        {
-          "item": "Real HD / pve1 / pve2 tests",
-          "status": "PENDING_EXPLICIT_APPROVAL"
-        },
-        {
-          "item": "CI step for monitoring tests (.github/workflows/test.yml)",
-          "status": "BLOCKED",
-          "reason": "GitHub API 403: integration may not modify workflows; patch in docs/CI-MONITORING-STEP.md for the owner"
-        }
+        {"item": "PySNMP backend / SNMPv3 SHA+DES", "status": "BLOCKED_NOT_TESTED", "reason": "PyPI HTTP 403 in dev environment"},
+        {"item": "CI step for monitoring tests (.github/workflows/test.yml)", "status": "BLOCKED", "reason": "GitHub API 403 for workflow files; patch in docs/CI-MONITORING-STEP.md"},
+        {"item": "Real HD / pve1 / pve2 tests", "status": "PENDING_EXPLICIT_APPROVAL"}
       ],
       "history": [
-        {
-          "utc": "2026-11-04T20:25Z",
-          "action": "PR #12 review",
-          "evidence": "https://github.com/ykinfohome7/ssh-connector/pull/12#issuecomment-6641436876"
-        },
-        {
-          "utc": "2026-11-04T20:30Z",
-          "action": "H1 fix",
-          "commit": "85bb7cbe863013b9606f7155ccbea8fae39ce762"
-        }
+        {"utc": "2026-11-04T20:25Z", "action": "PR #12 review", "evidence": "https://github.com/ykinfohome7/ssh-connector/pull/12#issuecomment-6641436876"},
+        {"utc": "2026-11-04T20:30Z", "action": "H1 fix", "commit": "85bb7cbe863013b9606f7155ccbea8fae39ce762"},
+        {"utc": "2026-11-04T20:50Z", "action": "round 1: SNMP module, fixes, Draft PR #14", "commit": "282550196b0a51476668434a3aafe0e26d661708"},
+        {"utc": "2026-11-04T21:10Z", "action": "round 2: engine, state, notifier, interfaces, 98 tests"}
       ]
     },
     {
       "agent_id": "CODEX",
       "task_id": "proxmox-readonly-api",
       "branch": "codex/proxmox-readonly-api",
-      "issues": [
-        13
-      ],
-      "state": "not_observed",
-      "note": "No Codex commit or branch observed on GitHub at 2026-11-04T20:45Z"
+      "issues": [13],
+      "state": "branch_observed",
+      "observed_head": "f6d593628f277e3ebac6b3da9b0e77333eadda0b",
+      "note": "Commit authors YAVOR/BGDB; agent attribution not verified by CLAUDE_CODE. No file overlap with claude/monitor-hardening-snmp."
     },
     {
       "agent_id": "CHATGPT",
