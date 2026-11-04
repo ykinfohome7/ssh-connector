@@ -112,8 +112,9 @@ class SecurityTests(unittest.TestCase):
 
     def test_proxy_environment_does_not_affect_opener(self):
         client = self.client()
-        self.assertFalse(any(type(h).__name__ == "ProxyHandler"
-                             for h in client._opener.handlers))
+        proxies = [h for h in client._opener.handlers
+                   if type(h).__name__ == "ProxyHandler"]
+        self.assertTrue(all(h.proxies == {} for h in proxies))
 
     def test_mutating_http_methods_have_no_api_surface(self):
         client = self.client()
