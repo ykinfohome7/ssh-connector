@@ -91,10 +91,26 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(redact(payload), sort_keys=True, default=str)
 
 
+class _StderrHandler(logging.StreamHandler):
+    """Writes to the *current* sys.stderr (so redirection and test capture work)."""
+
+    def __init__(self):
+        super().__init__()
+
+    @property
+    def stream(self):
+        import sys
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, _value):
+        pass
+
+
 def get_logger(name: str = "kssh.monitor") -> logging.Logger:
     logger = logging.getLogger(name)
     if not any(isinstance(h.formatter, JsonFormatter) for h in logger.handlers):
-        handler = logging.StreamHandler()
+        handler = _StderrHandler()
         handler.setFormatter(JsonFormatter())
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)

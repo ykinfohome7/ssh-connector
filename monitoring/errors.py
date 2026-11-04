@@ -16,12 +16,15 @@ class ErrorCode(str, Enum):
     UNREACHABLE = "UNREACHABLE"          # connection refused / no route
     AUTH_FAILED = "AUTH_FAILED"          # wrong user/key/community, bad digest, decrypt error
     PROTOCOL_ERROR = "PROTOCOL_ERROR"    # agent answered with an SNMP error-status
+    LINK_DOWN = "LINK_DOWN"              # interface admin up, oper not up
+    THRESHOLD_EXCEEDED = "THRESHOLD_EXCEEDED"  # error rate / flapping above configured limit
     UNAVAILABLE = "UNAVAILABLE"          # object not provided by this device
     CONFIG_ERROR = "CONFIG_ERROR"        # our config is invalid
     SECRET_MISSING = "SECRET_MISSING"    # referenced env var is not set
     DEPENDENCY_MISSING = "DEPENDENCY_MISSING"  # e.g. pysnmp not installed
     NOT_ALLOWED = "NOT_ALLOWED"          # target outside allowlist
     LIMIT_EXCEEDED = "LIMIT_EXCEEDED"    # walk results/duration bound hit
+    DEADLINE_EXCEEDED = "DEADLINE_EXCEEDED"  # our per-target safety deadline fired
     INTERNAL = "INTERNAL"                # unexpected local failure
 
     @property
@@ -34,6 +37,8 @@ _DEVICE_SIDE = frozenset({
     ErrorCode.UNREACHABLE,
     ErrorCode.AUTH_FAILED,
     ErrorCode.PROTOCOL_ERROR,
+    ErrorCode.LINK_DOWN,
+    ErrorCode.THRESHOLD_EXCEEDED,
 })
 
 
