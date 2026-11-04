@@ -38,7 +38,7 @@ def main():
         assert out.returncode == 0, out.stderr
         info = json.loads(out.stdout.strip().splitlines()[-1])
         assert info["v"] == version, f"installed plugin reports {info['v']}, expected {version}"
-        assert info["n"] == 48, info
+        assert info["n"] == 56, info  # 48 + 8 read-only SNMP tools
     print(f"plugin tests PASSED (version {version}, commands {info['n']})")
 
 
