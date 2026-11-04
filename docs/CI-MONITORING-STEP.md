@@ -11,7 +11,7 @@ Apply this change to `.github/workflows/test.yml` (insert after the "Check Codes
 +        id: monitoring
 +        # Fake in-memory SNMP agent only. pysnmp is intentionally NOT installed
 +        # here, so the real PySNMP backend is not exercised by this step.
-+        run: python -m unittest -v tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py tests/test_plugin_snmp.py
++        run: python -m unittest -v tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py tests/test_plugin_snmp.py tests/test_tailscale_endpoint.py
 +      - name: Check Proxmox read-only API module when present (offline, Issue #13)
 +        # Owned by CODEX (branch codex/proxmox-readonly-api); runs only once that file exists.
 +        run: |
