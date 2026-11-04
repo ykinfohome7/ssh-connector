@@ -5,7 +5,7 @@
 **Work directly over SSH on many servers — from Claude and ChatGPT.**
 Commands, interactive terminals, SFTP, tunnels, failover, events and a safe `sudo` password — no gateway in between.
 
-[![Version](https://img.shields.io/badge/version-1.3.3-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue)](CHANGELOG.md)
 [![Tests](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml/badge.svg)](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/ykinfohome7/ssh-connector?style=social)](https://github.com/ykinfohome7/ssh-connector/stargazers)
@@ -51,12 +51,17 @@ codex plugin marketplace add ykinfohome7/ssh-connector
 ```
 Then enable **ssh-connector** in the plugin list.
 
+### Updating
+- **Plugin** (Claude Code): `claude plugin marketplace update ykinfohome7-tools` → `claude plugin update ssh-connector@ykinfohome7-tools` → restart the session; `version_info` must show the new version.
+- **Remote connector** (ChatGPT / Claude apps): update and restart the backend first, then press **Refresh**. Refresh only reloads the tool list, it does not update code.
+- Details, Codex and the connector-address report (stdio / Tailscale Serve / Funnel): **[docs/PLUGIN-AND-ENDPOINT.md](docs/PLUGIN-AND-ENDPOINT.md)**.
+
 ### ChatGPT / Claude apps (web, phone) — connector over HTTPS
 They need a public HTTPS address. Use the [always-on server](#-always-on-server) or the [GitHub Actions session](#%EF%B8%8F-github-actions-session), then add the connector:
 - **ChatGPT:** Settings → Apps & Connectors → Advanced → Developer mode → *Create* → URL `https://<host>/<TOKEN>/mcp`, no authentication.
 - **Claude:** Settings → Connectors → *Add custom connector* → URL `https://<host>/mcp`, header `Authorization: Bearer <TOKEN>`.
 
-After an update press **Refresh** on the connector to load new commands. With Tailscale Funnel the address stays the same.
+After the backend is updated press **Refresh** on the connector to load new commands. With Tailscale Funnel the address stays the same. Tailscale **Serve** is reachable only inside your tailnet, not from ChatGPT/Claude servers; `tailscale_status` reports which mode is configured and whether it was verified.
 
 ### Download
 - ⬇️ **[Latest version (ZIP)](https://github.com/ykinfohome7/ssh-connector/archive/refs/heads/main.zip)**
@@ -128,6 +133,7 @@ Full setup (secrets, Tailscale, BGDB Codespaces): **[docs/GITHUB-SESSION.md](doc
 | Commands | [COMMANDS.md](docs/COMMANDS.md) | [COMMANDS.bg.md](docs/COMMANDS.bg.md) |
 | Security standards | [SECURITY-STANDARDS.md](docs/SECURITY-STANDARDS.md) | [SECURITY-STANDARDS.bg.md](docs/SECURITY-STANDARDS.bg.md) |
 | GitHub Actions session | [GITHUB-SESSION.md](docs/GITHUB-SESSION.md) | [GITHUB-SESSION.md](docs/GITHUB-SESSION.md) |
+| Plugin update & connector address | [PLUGIN-AND-ENDPOINT.md](docs/PLUGIN-AND-ENDPOINT.md) | [PLUGIN-AND-ENDPOINT.md](docs/PLUGIN-AND-ENDPOINT.md#български) |
 | Changelog | [CHANGELOG.md](CHANGELOG.md) | [CHANGELOG.md](CHANGELOG.md) |
 | Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) | [CONTRIBUTING.md](CONTRIBUTING.md) |
 

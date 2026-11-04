@@ -3,15 +3,22 @@
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 > _Всички по-важни промени. Най-новото е най-горе._
 
-## [Unreleased]
+## [1.4.0] — not released (Draft PR #14, not merged)
 ### Added / Добавено
+- `tailscale_status` returns an `endpoint` report: transport (`stdio` plugin / `http` backend), configured address (host only), Tailscale Serve (tailnet) vs Funnel (public) vs unknown, whether reachability was checked (`verify_reachability=true`, expects 401 without token), and safe MCP templates `https://<host>/<TOKEN>/mcp` / `Authorization: Bearer <TOKEN>`. Read-only: never runs `tailscale up/login/serve/funnel`.
+  > _`tailscale_status` показва режима (stdio/HTTP, Serve/Funnel/unknown), конфигурирания адрес и дали е проверен — без токени._
+- Isolated installed-plugin test (`tests/test_installed_plugin.py`, run from `tests/test_plugins.py`): only the plugin folder, real launcher, real MCP stdio, no repository root, no `PYTHONPATH`.
+- `docs/PLUGIN-AND-ENDPOINT.md`: plugin update vs. connector Refresh; endpoint modes.
 - Eight read-only SNMP MCP tools (56 total): `snmp_health`, `snmp_device_info`, `snmp_get`, `snmp_getnext`, `snmp_getbulk`, `snmp_walk`, `snmp_interfaces`, `snmp_interface_stats`. Configured device names only, mandatory `snmp.allowed_networks`, bounded requests, no SNMP SET. See `docs/SNMP.md`.
   > _Осем SNMP команди само за четене (общо 56). Само конфигурирани устройства, задължителен списък с разрешени мрежи, без SNMP SET._
 - Standalone read-only monitoring engine in `monitoring/` (SNMP, 10GbE interfaces, persistent state, rate-limited HTTPS notifications, JSON logs). Not deployed.
 ### Security / Сигурност
+- HTTP backend: uvicorn access log disabled, because it printed the secret-path URL (`/<TOKEN>/mcp`) in full.
+- `tailscale` CLI calls are killed on timeout; tool output redacts the connector token, secret URL paths, bearer values and `tskey-…` keys.
 - SNMPv3 by default; v1/v2c and DES only with explicit per-device opt-in; secrets only via environment-variable names; backend error texts never returned.
 ### Not verified / Непроверено
 - The PySNMP backend has not been executed against any agent (dependency could not be installed in the development environment).
+- Tailscale endpoint report: only mock `tailscale` CLI/HTTP responses; no real tailnet, Serve, Funnel or backend was contacted. Codex plugin update steps were not executed (Codex CLI not available).
 
 ## [1.3.3] — 2026-10-28
 ### Added / Добавено

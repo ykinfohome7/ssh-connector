@@ -5,7 +5,7 @@
 **Работа директно през SSH на много сървъри — от Claude и ChatGPT.**
 Команди, интерактивни терминали, SFTP, тунели, резервни адреси, събития и сигурна `sudo` парола — без посредник.
 
-[![Версия](https://img.shields.io/badge/версия-1.3.3-blue)](CHANGELOG.md)
+[![Версия](https://img.shields.io/badge/версия-1.4.0-blue)](CHANGELOG.md)
 [![Тестове](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml/badge.svg)](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml)
 [![Лиценз: GPL-3.0](https://img.shields.io/badge/лиценз-GPL--3.0-green)](LICENSE)
 [![Звезди](https://img.shields.io/github/stars/ykinfohome7/ssh-connector?style=social)](https://github.com/ykinfohome7/ssh-connector/stargazers)
@@ -50,12 +50,17 @@ codex plugin marketplace add ykinfohome7/ssh-connector
 ```
 После включи **ssh-connector** от списъка с плъгини.
 
+### Обновяване
+- **Плъгин** (Claude Code): `claude plugin marketplace update ykinfohome7-tools` → `claude plugin update ssh-connector@ykinfohome7-tools` → рестарт на сесията; `version_info` трябва да покаже новата версия.
+- **Отдалечен конектор** (ChatGPT / Claude): първо обнови и рестартирай сървъра, после натисни **Refresh**. Refresh само зарежда списъка с команди — не обновява кода.
+- Подробно, Codex и справката за адреса (stdio / Tailscale Serve / Funnel): **[docs/PLUGIN-AND-ENDPOINT.md](docs/PLUGIN-AND-ENDPOINT.md#български)**.
+
 ### Приложенията ChatGPT / Claude (уеб, телефон) — конектор през HTTPS
 Трябва им публичен HTTPS адрес. Използвай [сървъра, който е винаги включен](#-сървър-винаги-включен) или [сесията в GitHub Actions](#%EF%B8%8F-сесия-в-github-actions), после добави конектора:
 - **ChatGPT:** Settings → Apps & Connectors → Advanced → Developer mode → *Create* → URL `https://<адрес>/<ТОКЕН>/mcp`, без удостоверяване.
 - **Claude:** Settings → Connectors → *Add custom connector* → URL `https://<адрес>/mcp`, заглавие `Authorization: Bearer <ТОКЕН>`.
 
-След обновяване натисни **Refresh** на конектора, за да се заредят новите команди. С Tailscale Funnel адресът не се сменя.
+След обновяване на сървъра натисни **Refresh** на конектора, за да се заредят новите команди. С Tailscale Funnel адресът не се сменя. Tailscale **Serve** е достъпен само в твоя tailnet, не и от сървърите на ChatGPT/Claude; `tailscale_status` показва кой режим е настроен и дали е проверен.
 
 ### Изтегляне
 - ⬇️ **[Последна версия (ZIP)](https://github.com/ykinfohome7/ssh-connector/archive/refs/heads/main.zip)**
@@ -127,6 +132,7 @@ curl -fsSL https://raw.githubusercontent.com/ykinfohome7/ssh-connector/main/inst
 | Команди | [COMMANDS.md](docs/COMMANDS.md) | [COMMANDS.bg.md](docs/COMMANDS.bg.md) |
 | Стандарти за сигурност | [SECURITY-STANDARDS.md](docs/SECURITY-STANDARDS.md) | [SECURITY-STANDARDS.bg.md](docs/SECURITY-STANDARDS.bg.md) |
 | Сесия в GitHub Actions | [GITHUB-SESSION.md](docs/GITHUB-SESSION.md) | [GITHUB-SESSION.md](docs/GITHUB-SESSION.md) |
+| Обновяване на плъгина и адрес на конектора | [PLUGIN-AND-ENDPOINT.md](docs/PLUGIN-AND-ENDPOINT.md) | [PLUGIN-AND-ENDPOINT.md](docs/PLUGIN-AND-ENDPOINT.md#български) |
 | Промени по версии | [CHANGELOG.md](CHANGELOG.md) | [CHANGELOG.md](CHANGELOG.md) |
 | Участие | [CONTRIBUTING.md](CONTRIBUTING.md) | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
