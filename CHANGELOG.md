@@ -3,6 +3,16 @@
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 > _Всички по-важни промени. Най-новото е най-горе._
 
+## [Unreleased]
+### Added / Добавено
+- Eight read-only SNMP MCP tools (56 total): `snmp_health`, `snmp_device_info`, `snmp_get`, `snmp_getnext`, `snmp_getbulk`, `snmp_walk`, `snmp_interfaces`, `snmp_interface_stats`. Configured device names only, mandatory `snmp.allowed_networks`, bounded requests, no SNMP SET. See `docs/SNMP.md`.
+  > _Осем SNMP команди само за четене (общо 56). Само конфигурирани устройства, задължителен списък с разрешени мрежи, без SNMP SET._
+- Standalone read-only monitoring engine in `monitoring/` (SNMP, 10GbE interfaces, persistent state, rate-limited HTTPS notifications, JSON logs). Not deployed.
+### Security / Сигурност
+- SNMPv3 by default; v1/v2c and DES only with explicit per-device opt-in; secrets only via environment-variable names; backend error texts never returned.
+### Not verified / Непроверено
+- The PySNMP backend has not been executed against any agent (dependency could not be installed in the development environment).
+
 ## [1.3.3] — 2026-10-28
 ### Added / Добавено
 - Three MCP tools (48 total): `codespace_status` (all or exact name), `codespace_start` (wake via GitHub API), and `codespace_stop` (requires `confirm=true`).

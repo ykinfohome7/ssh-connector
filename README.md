@@ -31,7 +31,7 @@ Commands, interactive terminals, SFTP, tunnels, failover, events and a safe `sud
 | 🧩 **Groups & snippets** | Run one command on a whole group; saved commands |
 | 🌐 **Tailscale** | Status, devices, auth keys — and a permanent HTTPS address via Funnel |
 | 🧰 **GitHub Codespaces** | List/status, wake and confirmation-protected stop via authenticated GitHub CLI; requires Codespaces permission |
-| 📖 **Help built in** | `help` lists all **48 commands** in BG and EN with a ready example |
+| 📖 **Help built in** | `help` lists all **56 commands** in BG and EN with a ready example (incl. 8 read-only SNMP commands, see [docs/SNMP.md](docs/SNMP.md)) |
 
 ## 📦 Install
 
