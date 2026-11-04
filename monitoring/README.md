@@ -1,36 +1,68 @@
-# KSSH infrastructure monitor — MVP (NOT DEPLOYED)
+# KSSH infrastructure monitor (NOT DEPLOYED)
 
-Initial **read-only** monitoring prototype for the user's Real HD switch and Proxmox hosts. It runs as a standalone Python process; integration into KSSH and deployment are **not** implemented yet. See [issue #11](https://github.com/ykinfohome7/ssh-connector/issues/11) and [SNMP/RDP issue #10](https://github.com/ykinfohome7/ssh-connector/issues/10).
+Read-only monitoring for the Real HD 10GbE switch and the Proxmox hosts. Runs as a standalone Python process; it is **not** registered as KSSH MCP tools yet and **not** deployed anywhere. See [issue #11](https://github.com/ykinfohome7/ssh-connector/issues/11), [issue #10](https://github.com/ykinfohome7/ssh-connector/issues/10). The Proxmox VE API module is developed separately by CODEX in [issue #13](https://github.com/ykinfohome7/ssh-connector/issues/13).
 
-## Inventory
+> 🇧🇬 Резюме на български е в края на файла.
 
-| Device | IP | Check |
+## Modules
+
+| File | Purpose |
+|---|---|
+| `monitor.py` | Poll loop: TCP + SNMP checks, debounced DOWN/RECOVERED alerts, state file, optional HTTPS webhook |
+| `snmp_client.py` | Bounded read-only SNMP client: GET / GETNEXT / GETBULK / WALK. **No SET.** Allowlist, OID validation, limits, concurrency, error classification |
+| `snmp_interfaces.py` | IF-MIB / IF-X-MIB inventory, 64-bit counters, rate/utilisation maths, rollover/reboot/renumbering handling, flap tracking |
+| `snmp_adapters.py` | Device adapters: generic (SNMPv2-MIB, ENTITY-MIB, ENTITY-SENSOR-MIB), `realhd`, placeholders `cisco`, `unifi` |
+| `errors.py` | Error codes and UP / DOWN / UNKNOWN status |
+| `logutil.py` | JSON logs (UTC) with key- and value-based secret redaction |
+
+## Check status
+
+| Status | Meaning | Alerts? |
 |---|---|---|
-| Real HD SW5-10G-RJ45 | 192.168.30.10 | HTTP/TCP 80 and read-only SNMPv3 sysUpTime.0, sysName.0 |
-| Proxmox pve1 | 192.168.0.100 | TCP 8006 reachability only |
-| Proxmox pve2 | 192.168.0.127 | TCP 8006 reachability only |
+| `UP` | check succeeded | RECOVERED after `recovery_threshold` |
+| `DOWN` | device-side problem: `TIMEOUT`, `UNREACHABLE`, `AUTH_FAILED`, `PROTOCOL_ERROR` | DOWN after `failure_threshold` |
+| `UNKNOWN` | our setup is broken: `DEPENDENCY_MISSING`, `SECRET_MISSING`, `CONFIG_ERROR`, `NOT_ALLOWED`, `INTERNAL` | never; logged as WARNING |
 
-**Not yet included:** Proxmox API CPU/RAM/storage/VM status, backups, switch interface counters or temperature vendor OIDs, native push notifications, persistent systemd service, RDP. These are next iterations described in issue #11.
+## Configuration (`targets.example.json`)
+
+* `allowed_networks` — **required** allowlist (IPs/CIDRs, or exact hostnames). Every target must match.
+* Per target: `tcp_port` and/or `snmp` (at least one).
+* `snmp.version` — `"3"` (default). `"1"`/`"2c"` only with `"allow_legacy_snmp": true` and `community_env`.
+* `snmp.security_level` — `noAuthNoPriv`, `authNoPriv`, `authPriv` (default).
+* `snmp.auth_protocol` — `SHA` (=SHA-1), `SHA224`, `SHA256`, `SHA384`, `SHA512`. MD5 is not supported.
+* `snmp.priv_protocol` — `AES` (default), `AES192`, `AES256`; `DES` only with `"allow_legacy_des": true`.
+* `snmp.auth_env` / `priv_env` / `community_env` — **names** of environment variables; values are never in JSON.
+* `snmp.timeout` (0.2–10 s, default 2), `snmp.retries` (0–5, default 1), `snmp.adapter` (`generic`, `realhd`, `cisco`, `unifi`).
+* `max_concurrency` (1–16, default 4) — targets are checked in parallel.
+
+The Real HD switch supports only SHA + DES, so the example sets `allow_legacy_des: true`. DES is weak; restrict UDP/161 to the management host.
 
 ## Safe local testing
 
-Use a Linux host **already permitted** to reach the switch's management network and both Proxmox hosts. Do not put the switch's WAN port into a LAN switch.
+```bash
+python3 -m unittest -v tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py   # offline, fake SNMP agent
+python3 -m monitoring.monitor --once --config monitoring/targets.example.json        # only on an authorised host
+```
 
-1. Create a venv and install `pysnmp>=7.1,<8` for SNMP. Basic TCP polling does not need third-party packages.
-2. Use `monitoring/targets.example.json` as a starting point.
-3. Supply SNMPv3 passwords as **environment variables** named `KSSH_REALHD_AUTH_PASS` and `KSSH_REALHD_PRIV_PASS` via a private, chmod-600 protected service configuration or credentials manager. Never commit values or paste them into an issue/chat. The Real HD supports SHA authentication and only DES privacy; this is legacy cryptography, so restrict SNMP UDP/161 to an authorized management source.
-4. Run one local poll: `python3 monitoring/monitor.py --once --config monitoring/targets.example.json`.
-5. Run continuously only after checking results, access controls and notification destination: `python3 monitoring/monitor.py --config monitoring/targets.example.json`.
+For SNMP on a real host: `pip install -r monitoring/requirements-monitoring.txt`. **The PySNMP backend has not been executed yet** (PyPI was blocked in the development environment); validate it against a lab SNMP agent before any real device. Testing the Real HD switch or pve1/pve2 is `PENDING_EXPLICIT_APPROVAL`.
 
-The program reports to stdout on each poll. On a confirmed transition, it logs `DOWN` or `RECOVERED`; only if `KSSH_MONITOR_WEBHOOK` is explicitly set to an **HTTPS** endpoint will it POST a `{"text":"..."}` notification. This is suitable for some webhook receivers, not all; test your actual provider first. No unsolicited ChatGPT notifications are generated.
+## Security limits
 
-A target is declared down after **3** failing polls, and recovered after **2** good polls (60s poll interval by default). State is stored under `~/.local/state/kssh-monitor.json`. Initial state assumes healthy; consequently a newly unavailable host must fail the configured number of times before it alerts. This avoids one-packet false alarms but means short outages can be missed.
+* No SNMP SET, no configuration changes, no service restarts, no auto-start, no listeners.
+* No automatic SNMPv3 → v2c/v1 downgrade.
+* Walks are bounded (results, seconds, hard ceilings) and stop on non-increasing OIDs.
+* TCP reachability of :8006 does **not** prove Proxmox API or VM health.
+* Temperature/fans/PSU only via ENTITY-SENSOR-MIB; otherwise `UNAVAILABLE`. No Real HD vendor OID is verified.
 
-## Security limits / Важни ограничения
+---
 
-- A successful TCP connection does **not** prove Proxmox API health or VM health.
-- SNMP data for temperature is not yet implemented. Verify Real HD's vendor MIB/OID first.
-- For SNMPv1/v2c legacy Cisco devices, only configure `community_env` with the name of a private environment variable; never put the community itself into JSON. Prefer v3 where possible.
-- No SNMP SET, configuration changes, firewall changes, auto-starts, or service restarts.
-- Current prototype is untested against real hardware. Review/test locally before installing.
-- No code in this branch is automatically deployed to the installed KSSH service.
+## 🇧🇬 На български
+
+Мониторингът е **само за четене** и **не е внедрен**. Проверява TCP достъпност и SNMP (GET/GETNEXT/GETBULK/ограничен WALK — **никога SET**).
+
+* `allowed_networks` е задължителен списък с разрешени адреси.
+* SNMPv3 е по подразбиране (authPriv + AES). SNMPv1/v2c — само с `allow_legacy_snmp: true`. DES — само с `allow_legacy_des: true` (нужно за Real HD).
+* Паролите се подават само чрез **имена** на променливи на средата, никога в JSON.
+* Статус `UNKNOWN` (липсваща библиотека, парола или грешна настройка) **не** предизвиква тревога DOWN.
+* Температура, вентилатори и захранване се показват само ако устройството ги дава през ENTITY-SENSOR-MIB; иначе `UNAVAILABLE` — стойности не се измислят.
+* PySNMP частта **не е тествана реално** (PyPI е блокиран в средата за разработка). Тест с реален суич или pve1/pve2 изисква изрично одобрение (`PENDING_EXPLICIT_APPROVAL`).
