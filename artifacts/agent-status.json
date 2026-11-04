@@ -1,0 +1,75 @@
+{
+  "schema": "kssh-agent-status/1",
+  "updated_utc": "2026-11-04T20:46:00Z",
+  "agents": [
+    {
+      "agent_id": "CLAUDE_CODE",
+      "task_id": "monitor-hardening-snmp",
+      "run_id": "claude-20261104-02",
+      "branch": "claude/monitor-hardening-snmp",
+      "issues": [
+        11,
+        10
+      ],
+      "related_prs": [
+        12
+      ],
+      "state": "in_review",
+      "current_task": "PR #12 follow-up: H3, M1-M6, L1-L3, SNMP module, CI",
+      "results": {
+        "local_tests": {
+          "command": "python3 -m unittest -v tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py",
+          "python": "3.13.18",
+          "ran": 69,
+          "failed": 0,
+          "skipped": 0
+        },
+        "ci": "monitoring tests not in CI yet (workflow change blocked)"
+      },
+      "blocked": [
+        {
+          "item": "PySNMP backend / SNMPv3 SHA+DES",
+          "status": "BLOCKED_NOT_TESTED",
+          "reason": "PyPI HTTP 403 in dev environment"
+        },
+        {
+          "item": "Real HD / pve1 / pve2 tests",
+          "status": "PENDING_EXPLICIT_APPROVAL"
+        },
+        {
+          "item": "CI step for monitoring tests (.github/workflows/test.yml)",
+          "status": "BLOCKED",
+          "reason": "GitHub API 403: integration may not modify workflows; patch in docs/CI-MONITORING-STEP.md for the owner"
+        }
+      ],
+      "history": [
+        {
+          "utc": "2026-11-04T20:25Z",
+          "action": "PR #12 review",
+          "evidence": "https://github.com/ykinfohome7/ssh-connector/pull/12#issuecomment-6641436876"
+        },
+        {
+          "utc": "2026-11-04T20:30Z",
+          "action": "H1 fix",
+          "commit": "85bb7cbe863013b9606f7155ccbea8fae39ce762"
+        }
+      ]
+    },
+    {
+      "agent_id": "CODEX",
+      "task_id": "proxmox-readonly-api",
+      "branch": "codex/proxmox-readonly-api",
+      "issues": [
+        13
+      ],
+      "state": "not_observed",
+      "note": "No Codex commit or branch observed on GitHub at 2026-11-04T20:45Z"
+    },
+    {
+      "agent_id": "CHATGPT",
+      "role": "coordinator/reviewer",
+      "state": "external",
+      "note": "Reads published GitHub data only; no access to agent sessions"
+    }
+  ]
+}
