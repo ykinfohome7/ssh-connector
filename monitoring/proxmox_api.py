@@ -152,6 +152,27 @@ class ProxmoxReadOnlyClient:
                 404: "RESOURCE_NOT_FOUND"}.get(code, "UNAVAILABLE")
 
     def _get(self, node, resource, fixed_path, expected_type):
+        # Defense in depth: even direct calls to this private helper cannot
+        # target arbitrary GET routes. Keep the API surface strictly fixed.
+        if resource in ("api_version", "nodes"):
+            expected_path = "version" if resource == "api_version" else "nodes"
+            expected_kind = dict if resource == "api_version" else list
+            if node is not None:
+                raise ValueError("Endpoint does not take a node")
+        else:
+            suffixes = {
+                "node_status": ("status", dict),
+                "storage": ("storage", list),
+                "qemu": ("qemu", list),
+                "lxc": ("lxc", list),
+                "backup_tasks": ("tasks?typefilter=vzdump&limit=100&source=all", list),
+            }
+            if resource not in suffixes:
+                raise ValueError("Unknown Proxmox read endpoint")
+            suffix, expected_kind = suffixes[resource]
+            expected_path = "nodes/" + validated_node(node) + "/" + suffix
+        if fixed_path != expected_path or expected_type is not expected_kind:
+            raise ValueError("Only fixed read-only endpoints are allowed")
         auth = self._authorization()
         if auth is None:
             return self._result(node, resource, error_code="UNAVAILABLE")
@@ -216,7 +237,7 @@ class ProxmoxReadOnlyClient:
         # Proxmox VE task history, NOT the separate PBS product/API.
         return self._get(
             node, "backup_tasks",
-            f"nodes/{name}/tasks?typefilter=vzdump&limit=100", list)
+            f"nodes/{name}/tasks?typefilter=vzdump&limit=100&source=all", list)
 
     def snapshot(self, node):
         """Polling adapter contract. Do not confuse partial errors with STOPPED."""
