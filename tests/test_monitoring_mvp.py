@@ -47,6 +47,15 @@ class FakeBackend:
         raise AssertionError("not expected")
 
 
+class RecordingNotifier:
+    def __init__(self):
+        self.events = []
+
+    def send(self, event):
+        self.events.append(event)
+        return "printed"
+
+
 class StateTests(unittest.TestCase):
     def test_consecutive_failures_and_recovery(self):
         state = {}
@@ -186,11 +195,12 @@ class ProbeAndPollTests(unittest.TestCase):
             config = monitor.load_config(write_cfg(tmp, cfg))
         state = {}
         factory = lambda t: FakeBackend(error=MonitorError(ErrorCode.DEPENDENCY_MISSING))  # noqa: E731
-        with patch.dict(os.environ, self.ENV), patch.object(monitor, "notify") as notify:
+        notifier = RecordingNotifier()
+        with patch.dict(os.environ, self.ENV):
             for _ in range(5):
-                asyncio.run(monitor.poll(config, state, backend_factory=factory))
-        notify.assert_not_called()
-        self.assertTrue(state["sw/snmp"]["healthy"])
+                asyncio.run(monitor.poll(config, state, backend_factory=factory, notifier=notifier))
+        self.assertEqual(notifier.events, [])
+        self.assertTrue(state["checks"]["sw/snmp"]["healthy"])
 
     def test_poll_runs_targets_concurrently(self):  # M4
         cfg = {"allowed_networks": ["127.0.0.1"], "max_concurrency": 4,
@@ -206,7 +216,7 @@ class ProbeAndPollTests(unittest.TestCase):
         async def run():
             loop = asyncio.get_running_loop()
             t0 = loop.time()
-            await monitor.poll(config, {}, backend_factory=lambda t: SlowBackend())
+            await monitor.poll(config, {}, backend_factory=lambda t: SlowBackend(), notifier=RecordingNotifier())
             return loop.time() - t0
 
         with patch.dict(os.environ, self.ENV):
@@ -220,12 +230,14 @@ class ProbeAndPollTests(unittest.TestCase):
             config = monitor.load_config(write_cfg(tmp, cfg))
         state = {}
         factory = lambda t: FakeBackend(error=MonitorError(ErrorCode.TIMEOUT))  # noqa: E731
-        with patch.dict(os.environ, self.ENV), patch.object(monitor, "notify") as notify:
-            asyncio.run(monitor.poll(config, state, backend_factory=factory))
-            notify.assert_not_called()
-            asyncio.run(monitor.poll(config, state, backend_factory=factory))
-        notify.assert_called_once()
-        self.assertIn("DOWN: sw/snmp (TIMEOUT)", notify.call_args[0][0])
+        notifier = RecordingNotifier()
+        with patch.dict(os.environ, self.ENV):
+            asyncio.run(monitor.poll(config, state, backend_factory=factory, notifier=notifier))
+            self.assertEqual(notifier.events, [])
+            asyncio.run(monitor.poll(config, state, backend_factory=factory, notifier=notifier))
+        self.assertEqual(len(notifier.events), 1)
+        ev = notifier.events[0]
+        self.assertEqual((ev["check"], ev["event"], ev["error_code"]), ("sw/snmp", "DOWN", "TIMEOUT"))
 
 
 class WebhookTests(unittest.TestCase):
