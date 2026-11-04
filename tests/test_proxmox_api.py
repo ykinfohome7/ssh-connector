@@ -121,6 +121,7 @@ class APITests(unittest.TestCase):
             {"type": "apt", "upid": "not-a-backup", "status": "ERROR", "endtime": 18},
         ], "host-a")
         self.assertIn("typefilter=vzdump", url)
+        self.assertIn("source=all", url)
         self.assertEqual([t["upid"] for t in result["data"]["failures"]], ["task2"])
         self.assertEqual(result["data"]["total_returned"], 3)
         self.assertFalse(result["capabilities"]["pbs_health"])
