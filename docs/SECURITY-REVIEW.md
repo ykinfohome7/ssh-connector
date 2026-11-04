@@ -36,6 +36,16 @@
 | R2-7 | LOW | Log handler bound to the stderr object at import time | FIXED | handler follows the current `sys.stderr` |
 | R2-8 | LOW | Target names could contain `/`, colliding with check keys | FIXED | names 1..64 chars, no `/`; ≤ 256 targets |
 
+## Round 3 — SNMP exposed as MCP tools
+
+| ID | Severity | Finding / risk | Status | Control |
+|---|---|---|---|---|
+| R3-1 | HIGH | MCP tools reachable from ChatGPT/remote clients could be used to scan arbitrary hosts | MITIGATED | tools take only configured device names; every device host must be inside `snmp.allowed_networks`; test refuses a raw IP |
+| R3-2 | MEDIUM | Large/unbounded responses to the AI client | MITIGATED | ≤ 32 OIDs, GETBULK ≤ 25, WALK ≤ 2000 results / 20 s, every string capped at 1024 chars, per-call deadline |
+| R3-3 | MEDIUM | Backend exceptions could echo secrets to the client | MITIGATED | exception type only; test injects a secret into an exception text |
+| R3-4 | LOW | No audit of SNMP calls | MITIGATED | each call appended to `history` as `snmp:<tool> <args>` with exit_code 0/1 |
+| R3-5 | LOW | Pre-existing: `docs/COMMANDS*.md` on `main` differ from `scripts/gen_commands_docs.py` output | OPEN (not introduced here) | left unchanged to keep hand-written notes; SNMP documented in `docs/SNMP.md` |
+
 ## Controls in place
 
 * Mandatory allowlist (`allowed_networks`) at config load and in `SnmpClient`; alternate IP spellings do not bypass it (tested).

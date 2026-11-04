@@ -2,6 +2,21 @@
 
 Local ≠ CI. Each entry states where it ran. Nothing below was run against a real device.
 
+## Run L3 — local, CLAUDE_CODE (SNMP MCP tools)
+
+| Field | Value |
+|---|---|
+| Time (UTC) | 2026-11-04T21:45Z |
+| Environment | Python 3.13.18; `pysnmp` and `asyncssh` not installable (PyPI 403); installed `mcp` is 2.x while the plugin pins `mcp<2` |
+| Command A | `python3 -W error::ResourceWarning -m unittest tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py tests/test_plugin_snmp.py` |
+| Result A | **Ran 113 — OK (skipped=1)**: the skipped test imports `server.py`, which needs `mcp<2` + `asyncssh` |
+| Command B | same + `PYTHONPATH=<local stubs>` (minimal stand-ins for `asyncssh` and `mcp.server.fastmcp`, **not committed**) |
+| Result B | **Ran 113 — OK**; `tests/test_plugins.py` → `plugin tests PASSED (version 1.3.3, commands 56)` |
+
+Result B uses stubs, so it proves registration logic (56 tools = 56 HELP entries) but **not** the real MCP runtime. The real check is `tests/test_plugins.py` in GitHub Actions, which installs `mcp<2` and `asyncssh` and now asserts 56.
+
+New `tests/test_plugin_snmp.py` (15 tests): config errors are `UNKNOWN`, only configured device names (a raw IP is refused), missing secret, health/device info/GET/GETNEXT/GETBULK (repetitions capped)/bounded WALK, invalid OIDs and injection-like input refused, interface filter, rates from two samples (1 Gbit/s, 10 %, 2 errors/s), device errors `DOWN`, secrets never echoed, values capped at 1024 chars, no write operation in code, vendored library in sync, example configs valid, server registration with BG/EN help.
+
 ## Run L2 — local, CLAUDE_CODE (round 2)
 
 | Field | Value |
@@ -49,7 +64,7 @@ Each bug below was injected one at a time; the suite failed for every one and pa
 ## Run CI — GitHub Actions
 
 * Round 1, SHA `2825501`: [run 41911057412](https://github.com/ykinfohome7/ssh-connector/actions/runs/41911057412/job/126858399970) — **success**. This proves existing KSSH tests still pass. It does **not** run the monitoring tests.
-* **The monitoring tests are not part of CI (M6 BLOCKED).** The workflow change was refused for Claude's GitHub integration (HTTP 403). Ready step: [`docs/CI-MONITORING-STEP.md`](CI-MONITORING-STEP.md). With round 2 the step should also list `tests/test_monitoring_engine.py`.
+* **The monitoring tests are not part of CI (M6 BLOCKED).** The workflow change was refused for Claude's GitHub integration (HTTP 403). Ready step (now listing all four monitoring/SNMP test files): [`docs/CI-MONITORING-STEP.md`](CI-MONITORING-STEP.md).
 
 ## Not executed
 

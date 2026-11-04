@@ -1,6 +1,6 @@
 # Development status — read-only monitoring
 
-Updated: 2026-11-04 ~21:10 UTC by CLAUDE_CODE. Connector version: 1.3.3 (48 MCP tools) — unchanged.
+Updated: 2026-11-04 ~21:45 UTC by CLAUDE_CODE. Connector version: 1.3.3; MCP tools: **56** (48 + 8 read-only SNMP) on this branch, approved by the owner on 2026-11-04.
 
 | Area | State | Owner | Notes |
 |---|---|---|---|
@@ -16,7 +16,7 @@ Updated: 2026-11-04 ~21:10 UTC by CLAUDE_CODE. Connector version: 1.3.3 (48 MCP 
 | JSON logging + redaction | implemented, tested | CLAUDE_CODE | |
 | CI for monitoring tests | **BLOCKED** | owner | workflow edit refused (403); patch in `docs/CI-MONITORING-STEP.md` |
 | Proxmox VE read-only API | in progress on `codex/proxmox-readonly-api` | CODEX (Issue #13) | not touched by CLAUDE_CODE |
-| MCP tools for SNMP | not exposed | — | changes the 48-tool contract; needs a decision |
+| MCP tools for SNMP (8) | implemented, offline-tested | CLAUDE_CODE | `snmp_health`, `snmp_device_info`, `snmp_get`, `snmp_getnext`, `snmp_getbulk`, `snmp_walk`, `snmp_interfaces`, `snmp_interface_stats`; see `docs/SNMP.md` |
 | RDP / Windows checks | not started | — | |
 | Deployment / systemd | not started | — | requires explicit approval |
 
@@ -36,6 +36,8 @@ The engine consumes any async check returning:
 
 `DOWN` only for device-side failures (unreachable, timeout, auth, API error); `UNKNOWN` for our own setup problems (missing token, dependency, config, deadline). A `proxmox` section per target can then be dispatched from `monitor._run_checks` without changing state, notification or deadline logic.
 
-## Proposed MCP tool names (not registered yet)
+## SNMP MCP tools — packaging
 
-`snmp_get`, `snmp_getnext`, `snmp_walk`, `snmp_getbulk`, `snmp_device_info`, `snmp_interfaces`, `snmp_interface_stats`, `snmp_health`.
+The plugin is installed as the folder `plugins/ssh-connector` only, so the SNMP library is copied from `monitoring/` into `plugins/ssh-connector/kssh_snmp/` by `scripts/sync_plugin_snmp.py`; `tests/test_plugin_snmp.py` fails when the copies differ. `pysnmp` is **not** added to the plugin requirements (unverified); without it the tools answer `UNKNOWN / DEPENDENCY_MISSING`.
+
+`docs/COMMANDS*.md` were not regenerated: on `main` they already differ from the generator output and contain hand-written notes. The SNMP group is registered in `scripts/gen_commands_docs.py`; the SNMP commands are documented in `docs/SNMP.md`.
