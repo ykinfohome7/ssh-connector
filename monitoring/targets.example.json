@@ -1,0 +1,31 @@
+{
+  "interval_seconds": 60,
+  "failure_threshold": 3,
+  "recovery_threshold": 2,
+  "targets": [
+    {
+      "name": "realhd-switch",
+      "host": "192.168.30.10",
+      "tcp_port": 80,
+      "snmp": {
+        "version": "3",
+        "user": "bgadmin",
+        "auth_protocol": "SHA",
+        "priv_protocol": "DES",
+        "auth_env": "KSSH_REALHD_AUTH_PASS",
+        "priv_env": "KSSH_REALHD_PRIV_PASS",
+        "port": 161
+      }
+    },
+    {
+      "name": "pve1",
+      "host": "192.168.0.100",
+      "tcp_port": 8006
+    },
+    {
+      "name": "pve2",
+      "host": "192.168.0.127",
+      "tcp_port": 8006
+    }
+  ]
+}
