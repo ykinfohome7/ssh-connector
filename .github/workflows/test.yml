@@ -6,7 +6,8 @@ on:
       - "control/**"
       - "test-results.txt"
   pull_request:
-    branches: [main]
+    # Allow the CI handoff PR to validate before it is merged into Claude's branch.
+    branches: [main, claude/monitor-hardening-snmp]
   workflow_dispatch:
 
 concurrency:
@@ -46,7 +47,35 @@ jobs:
         run: python tests/test_profiles.py
       - name: Check Codespaces lifecycle tools (offline, no GitHub calls)
         run: python tests/test_codespaces.py
-      - name: Check Claude Code and Codex plugins (v1.3.3, 48 tools)
+      - name: Check monitoring, SNMP and plugin wrappers (offline, no devices)
+        id: monitoring
+        # Fake SNMP backends and loopback HTTP fixtures only; no PySNMP/device probes.
+        run: |
+          python - <<'PYTEST'
+          import sys
+          import unittest
+
+          import asyncssh
+          import mcp
+          import yaml
+
+          program = unittest.main(
+              module=None,
+              argv=[
+                  "unittest", "-v",
+                  "tests/test_monitoring_mvp.py",
+                  "tests/test_monitoring_snmp.py",
+                  "tests/test_monitoring_engine.py",
+                  "tests/test_plugin_snmp.py",
+              ],
+              exit=False,
+          )
+          result = program.result
+          if result.skipped:
+              print(f"Monitoring CI requires all checks to execute; skipped={len(result.skipped)}", file=sys.stderr)
+          sys.exit(0 if result.wasSuccessful() and result.testsRun > 0 and not result.skipped else 1)
+          PYTEST
+      - name: Check Claude Code and Codex plugins (56 tools)
         id: plugins
         run: python tests/test_plugins.py
       - name: Check public log redaction and schema
