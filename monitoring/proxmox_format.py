@@ -38,6 +38,13 @@ def normalize(resource, value):
                 data[key] = fields(value[key], numbers=('used', 'total', 'free'))
         return data, {key: bool(data.get(key)) if key in ('memory', 'swap') else key in data
                       for key in ('cpu', 'uptime', 'memory', 'swap', 'netin', 'netout')} | {'network_metrics': 'netin' in data or 'netout' in data}
+    if resource == 'guest_status':
+        data = fields(value, ('status',), ('uptime', 'cpu', 'mem', 'maxmem', 'netin', 'netout', 'diskread', 'diskwrite'))
+        if data.get('status') not in (None, 'running', 'stopped'):
+            raise ValueError('Invalid guest status')
+        flags = {key: key in data for key in ('status', 'uptime', 'cpu', 'mem', 'maxmem', 'netin', 'netout', 'diskread', 'diskwrite')}
+        flags['network_metrics'] = 'netin' in data or 'netout' in data
+        return data, flags
     if not isinstance(value, list):
         raise ValueError('Expected list')
     if resource == 'nodes':
@@ -70,13 +77,24 @@ def normalize(resource, value):
         out = []
         for entry in value:
             row = fields(entry, ('name', 'status'), ('vmid', 'uptime', 'cpu', 'mem', 'maxmem', 'netin', 'netout'))
-            if type(row.get('vmid')) is not int or not 1 <= row['vmid'] <= 999999999:
+            if type(row.get('vmid')) is not int or not 100 <= row['vmid'] <= 999999999:
                 raise ValueError('Invalid VMID')
             if row.get('status') not in (None, 'running', 'stopped'):
                 raise ValueError('Invalid guest status')
             row['capabilities'] = {key: key in row for key in ('status', 'cpu', 'uptime', 'mem', 'maxmem', 'netin', 'netout')}
             out.append(row)
         return out, {'inventory': True, 'network_metrics': any('netin' in x or 'netout' in x for x in out)}
+    if resource == 'backup_jobs':
+        jobs = []
+        for item in value:
+            row = fields(item, ('id', 'node', 'storage', 'schedule'), ('enabled',))
+            if not row.get('id'):
+                raise ValueError('Missing job identity')
+            if 'enabled' in row and row['enabled'] not in (0, 1):
+                raise ValueError('Invalid enabled flag')
+            row['capabilities'] = {key: key in row for key in ('node', 'storage', 'schedule', 'enabled')}
+            jobs.append(row)
+        return jobs, {'backup_jobs': True, 'backup_recency_assurance': False, 'pbs_health': False}
     if resource == 'backup_tasks':
         tasks, failures = [], []
         for item in value:

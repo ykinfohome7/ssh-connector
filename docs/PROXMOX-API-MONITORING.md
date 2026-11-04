@@ -16,7 +16,7 @@ A successful TCP connection to port 8006 is NOT evidence of a healthy Proxmox AP
 - Verified TLS chain and hostname, with optional approved custom CA bundle. Never disable certificate checking. Connecting to an IP requires a matching certificate IP SAN.
 - API token ID and secret are looked up by environment variable references at request time. No passwords, inline credentials or root password authentication. Use a separate least-privileged token with privilege separation.
 - Only hard-coded GET endpoints are implemented. No POST, PUT, PATCH, DELETE, arbitrary URLs, redirects, VM power actions or config changes.
-- Configurable 0–60 second timeout (zero is rejected), 2 MiB response cap, configurable response cap up to 2 MiB, no retries, no background polling.
+- Configurable 0–60 second timeout (zero is rejected), configurable response cap up to 2 MiB, no retries, no background polling.
 - Structured JSON logs include UTC time, correlation ID, resource, status and error code only (node names are omitted from logs); no token, URL, raw HTTP response or raw exception.
 
 For an authorized future installation, grant only the Proxmox audit/view privileges required by the chosen endpoints. Common privileges to review include Sys.Audit, VM.Audit and Datastore.Audit on appropriately scoped ACL paths. Do not use administrator or VM.PowerMgmt roles. A 403 becomes PERMISSION_DENIED, never an empty or stopped VM list.
@@ -31,6 +31,8 @@ For an authorized future installation, grant only the Proxmox audit/view privile
 | storage(node) | /api2/json/nodes/{node}/storage | Capacity, optional 90% warning, inactive storage |
 | qemu(node) | /api2/json/nodes/{node}/qemu | Dynamically discovered QEMU status |
 | lxc(node) | /api2/json/nodes/{node}/lxc | Dynamically discovered LXC status |
+| guest_status(node, kind, vmid) | /api2/json/nodes/{node}/{qemu or lxc}/{vmid}/status/current | Current guest status and available CPU/RAM/network/disk counters |
+| backup_jobs() | /api2/json/cluster/backup | Visible configured PVE backup schedules (not execution history) |
 | backup_tasks(node) | /api2/json/nodes/{node}/tasks?typefilter=vzdump&limit=100&source=all | Visible Proxmox VE vzdump task outcomes |
 | snapshot(node) | Six fixed GET calls above | Aggregated adapter output |
 
@@ -182,3 +184,82 @@ engine integration and real-device behavior remain **NOT TESTED**.
 
 БГ: неизвестни данни не означават нула, STOPPED или физически DOWN. Само offline
 проверки; няма разрешение за връзки към реални устройства или deployment.
+
+## Current guest details and configured backup jobs
+
+Use qemu(node) or lxc(node) for dynamic inventory before selecting a VMID for
+`guest_status(node, kind, vmid)`. Selectors accept only kind `qemu`/`lxc` and an
+integer VMID in 100..999999999 (booleans and strings are rejected). There is no
+power-action endpoint. Current status reads expose status, uptime, CPU, mem,
+maxmem, and optional netin/netout/diskread/diskwrite only when the API supplies
+them. Missing status is unknown, never assumed stopped. The caller controls how
+many discovered guests to poll; no automatic fan-out or unbounded task creation.
+VM.Audit and the effective token/user ACLs constrain visible guests.
+
+`backup_jobs()` separately queries `/cluster/backup` and emits only job id, node,
+storage, schedule and enabled fields with per-job capability flags. It excludes
+mail addresses, notes and other arbitrary configuration. Availability depends on
+the deployed PVE schema and the token's audit rights (typically Sys.Audit at the
+cluster scope `/` for reading this configuration). A narrow token may receive 403;
+do not broaden it automatically. A configured/enabled job does not prove that it
+ran, succeeded, or produced a recent usable backup. Conversely, an empty visible
+job list does not prove the absence of backups. Jobs are deliberately not added
+to the six-call node snapshot because cluster configuration is a separate scope.
+The 2 MiB body limit also applies to this list. No job mutation endpoints exist.
+
+## Contract review against Claude PR #14 (no integration performed)
+
+Read-only review refs at the time of this change:
+
+- PR #12: `85bb7cbe863013b9606f7155ccbea8fae39ce762`.
+- PR #14: `282550196b0a51476668434a3aafe0e26d661708`.
+
+PR #14's `.github/workflows/test.yml` does **not** invoke its 69 monitoring tests.
+Its prepared `docs/CI-MONITORING-STEP.md` remains the owner's integration task.
+This branch does not change that workflow or duplicate that fix. The existing
+separate `proxmox-api-offline` workflow only covers the Proxmox suite; its presence
+is not evidence that any Actions run passed. Local tests and CI results must be
+reported separately and matched to a full commit SHA.
+
+PR #14's engine evaluates `checks[name].status` and translates UNKNOWN to
+`ok=None` for the debounce state machine. Passing snapshot's aggregate OK or
+DEGRADED directly would instead be treated as a failure. The future adapter must
+explicitly translate these collection states, retain the raw sample and its
+resource_capabilities, and avoid calling status_for(AUTH_FAILED) for API errors:
+that helper currently maps auth failures to DOWN, which does not establish a
+powered-off physical node. Example **proposal only**, not installed into engine:
+
+```python
+import asyncio
+
+async def proposed_proxmox_probe(client, node):
+    sample = await asyncio.to_thread(client.snapshot, node)
+    collected = sample['ok'] and sample['status'] == 'OK'
+    return {
+        'ok': collected,
+        'status': 'UP' if collected else 'UNKNOWN',
+        'error_code': None if collected else (sample['error_code'] or 'UNAVAILABLE'),
+        'detail': 'API collection complete' if collected else 'API collection incomplete',
+        'sample': sample,
+    }
+```
+
+Run this behind the engine's existing concurrency bound; own worker cancellation
+and shutdown explicitly because cancellation of to_thread does not stop blocking
+urllib I/O. Socket timeout is per blocking operation, not a whole-snapshot deadline.
+Use independent named checks for CPU/RAM/storage thresholds and selected critical
+guests only after a reviewed operator policy; an API-collection UP does not assert
+all guests are running. Preserve unknown metrics so they cannot reset alert state
+or create false recovery events. The snapshot now preserves each sub-sample's
+capabilities in `data.resource_capabilities`, including unavailable metrics.
+
+БГ: CI пропускът за 69-те теста е документиран, без промяна на чуждия workflow.
+API грешки остават UNKNOWN. Новите GET методи не стартират/спират VM и не променят
+backup jobs. Реална интеграция с engine-а остава отделна задача.
+
+Schema references checked during implementation (public upstream source only):
+[PVE JSONSchema: pve-vmid](https://github.com/proxmox/pve-common/blob/master/src/PVE/JSONSchema.pm)
+sets VMID bounds 100..999999999;
+[PVE API2 Backup](https://github.com/proxmox/pve-manager/blob/master/PVE/API2/Backup.pm)
+defines the GET schedule list with Sys.Audit at `/`. Verify the deployed release's
+schema independently before a separately authorized real-device test.

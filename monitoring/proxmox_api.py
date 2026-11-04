@@ -171,14 +171,25 @@ class ProxmoxReadOnlyClient:
         return {401: "AUTH_FAILED", 403: "PERMISSION_DENIED",
                 404: "RESOURCE_NOT_FOUND"}.get(code, "UNAVAILABLE")
 
-    def _get(self, node, resource, fixed_path, expected_type):
+    def _get(self, node, resource, fixed_path, expected_type, *, guest=None):
         # Defense in depth: even direct calls to this private helper cannot
         # target arbitrary GET routes. Keep the API surface strictly fixed.
-        if resource in ("api_version", "nodes"):
-            expected_path = "version" if resource == "api_version" else "nodes"
+        if guest is not None and resource != "guest_status":
+            raise ValueError("Guest selector not applicable")
+        if resource in ("api_version", "nodes", "backup_jobs"):
+            expected_path = {"api_version": "version", "nodes": "nodes",
+                             "backup_jobs": "cluster/backup"}[resource]
             expected_kind = dict if resource == "api_version" else list
             if node is not None:
                 raise ValueError("Endpoint does not take a node")
+        elif resource == "guest_status":
+            if not isinstance(guest, tuple) or len(guest) != 2:
+                raise ValueError("Guest selector required")
+            kind, vmid = guest
+            if kind not in ("qemu", "lxc") or type(vmid) is not int or not 100 <= vmid <= 999999999:
+                raise ValueError("Invalid guest selector")
+            expected_path = f"nodes/{validated_node(node)}/{kind}/{vmid}/status/current"
+            expected_kind = dict
         else:
             suffixes = {
                 "node_status": ("status", dict),
@@ -217,7 +228,9 @@ class ProxmoxReadOnlyClient:
             data, caps = normalize(resource, payload["data"])
             return self._result(node, resource, data=data, capabilities=caps)
         except urllib.error.HTTPError as exc:
-            return self._result(node, resource, error_code=self._http_error(exc.code))
+            code = self._http_error(exc.code)
+            exc.close()
+            return self._result(node, resource, error_code=code)
         except (ssl.SSLError, ssl.CertificateError):
             return self._result(node, resource, error_code="TLS_ERROR")
         except urllib.error.URLError as exc:
@@ -252,6 +265,19 @@ class ProxmoxReadOnlyClient:
         name = validated_node(node)
         return self._get(node, "lxc", f"nodes/{name}/lxc", list)
 
+    def guest_status(self, node, kind, vmid):
+        """Текущи метрики само за guest от динамичния inventory."""
+        name = validated_node(node)
+        if kind not in ("qemu", "lxc") or type(vmid) is not int or not 100 <= vmid <= 999999999:
+            raise ValueError("Invalid guest selector")
+        return self._get(node, "guest_status",
+                         f"nodes/{name}/{kind}/{vmid}/status/current", dict,
+                         guest=(kind, vmid))
+
+    def backup_jobs(self):
+        """Видима PVE backup конфигурация, не доказателство за успешен backup."""
+        return self._get(None, "backup_jobs", "cluster/backup", list)
+
     def backup_tasks(self, node):
         name = validated_node(node)
         # Proxmox VE task history, NOT the separate PBS product/API.
@@ -274,6 +300,7 @@ class ProxmoxReadOnlyClient:
         data = {
             "resources": {name: x["data"] if x["ok"] else None
                           for name, x in parts.items()},
+            "resource_capabilities": {name: x["capabilities"] for name, x in parts.items()},
             "errors": {name: x["error_code"] for name, x in parts.items()
                        if not x["ok"]},
         }

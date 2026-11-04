@@ -32,6 +32,10 @@ class Response:
 
 class APITests(unittest.TestCase):
     def setUp(self):
+        # Защита: offline тестовете не могат да отварят TCP connections.
+        network = patch("socket.socket.connect", side_effect=AssertionError("Offline test opened a socket"))
+        network.start()
+        self.addCleanup(network.stop)
         self.credentials = patch.dict(os.environ, {
             "KSSH_PROXMOX_TOKEN_ID": "monitor@pve!readonly",
             "KSSH_PROXMOX_TOKEN_SECRET": "test-value-not-real",
@@ -94,8 +98,8 @@ class APITests(unittest.TestCase):
     def test_running_and_stopped_vm_are_reported_as_given(self):
         result, _ = self.read("qemu", [
             {"vmid": 703, "name": "vm703", "status": "running", "netin": 8},
-            {"vmid": 5, "name": "vm5", "status": "stopped"}], "host-a")
-        self.assertEqual([vm["vmid"] for vm in result["data"]], [703, 5])
+            {"vmid": 705, "name": "vm705", "status": "stopped"}], "host-a")
+        self.assertEqual([vm["vmid"] for vm in result["data"]], [703, 705])
         self.assertEqual([vm["status"] for vm in result["data"]],
                          ["running", "stopped"])
         self.assertTrue(result["capabilities"]["network_metrics"])
@@ -237,8 +241,8 @@ class APITests(unittest.TestCase):
         cases = [('node_status', {'cpu': 'bad'}), ('node_status', {'cpu': True}),
                  ('node_status', {'cpu': -1}), ('node_status', {'memory': []}),
                  ('node_status', {'memory': {'total': float('inf')}}),
-                 ('qemu', [{'vmid': 8, 'cpu': 'secret'}]),
-                 ('lxc', [{'vmid': 8, 'status': {}}]),
+                 ('qemu', [{'vmid': 108, 'cpu': 'secret'}]),
+                 ('lxc', [{'vmid': 108, 'status': {}}]),
                  ('storage', [{'storage': 'disk', 'total': 'bad'}]),
                  ('backup_tasks', [{'type': 'vzdump', 'endtime': 'bad'}])]
         for method, data in cases:
@@ -251,7 +255,7 @@ class APITests(unittest.TestCase):
     def test_empty_lxc_and_missing_guest_status(self):
         result, _ = self.read('lxc', [], 'host-a')
         self.assertEqual(result['data'], [])
-        result, _ = self.read('qemu', [{'vmid': 8}], 'host-a')
+        result, _ = self.read('qemu', [{'vmid': 108}], 'host-a')
         self.assertNotIn('status', result['data'][0])
         self.assertFalse(result['data'][0]['capabilities']['status'])
 
@@ -301,10 +305,71 @@ class APITests(unittest.TestCase):
         self.assertEqual(client.tls_context.verify_mode, ssl.CERT_REQUIRED)
 
     def test_invalid_vmid_response_is_rejected(self):
-        for vmid in (True, 0, -1, 1000000000, '100', 1.5):
+        for vmid in (True, 0, -1, 99, 1000000000, '100', 1.5):
             with self.subTest(vmid=vmid):
                 with patch.object(self.client._opener, 'open', return_value=Response([{'vmid': vmid}])):
                     self.assertEqual(self.client.qemu('host-a')['error_code'], 'MALFORMED_RESPONSE')
+
+
+    def test_current_guest_status_fixed_get_and_metrics(self):
+        for kind, state in (('qemu', 'running'), ('lxc', 'stopped')):
+            result, url = self.read('guest_status', {'status': state, 'cpu': 0,
+                'mem': 0, 'netin': 23, 'diskread': 42}, 'host-a', kind, 703)
+            self.assertTrue(url.endswith(f'/nodes/host-a/{kind}/703/status/current'))
+            self.assertEqual(result['data']['status'], state)
+            self.assertTrue(result['capabilities']['netin'])
+            self.assertFalse(result['capabilities']['netout'])
+            self.assertEqual(result['data']['mem'], 0)
+
+    def test_guest_status_missing_metrics_not_stopped(self):
+        result, _ = self.read('guest_status', {}, 'host-a', 'qemu', 703)
+        self.assertNotIn('status', result['data'])
+        self.assertFalse(result['capabilities']['status'])
+        self.assertFalse(result['capabilities']['network_metrics'])
+
+    def test_guest_selector_rejection_before_io(self):
+        with patch.object(self.client._opener, 'open') as mocked:
+            for kind, vmid in (('qemu/start', 703), ('lxc', '../100'), ('qemu', True),
+                               ('qemu', 0), ('qemu', 99), ('qemu', 1.5), ('qemu', 1000000000)):
+                with self.subTest(kind=kind, vmid=vmid), self.assertRaises(ValueError):
+                    self.client.guest_status('host-a', kind, vmid)
+            mocked.assert_not_called()
+
+    def test_guest_current_invalid_values(self):
+        for body in ({'status': 'UP'}, {'netin': -1}, {'cpu': True}, {'mem': '0'}):
+            with patch.object(self.client._opener, 'open', return_value=Response(body)):
+                self.assertEqual(self.client.guest_status('host-a', 'qemu', 703)['error_code'],
+                                 'MALFORMED_RESPONSE')
+
+    def test_configured_backup_jobs_separate_from_task_results(self):
+        result, url = self.read('backup_jobs', [{'id': 'job-a', 'schedule': 'daily',
+            'enabled': 1, 'storage': 'lab-store', 'node': 'host-a',
+            'notes-template': 'not exposed', 'mailto': 'not exposed'}])
+        self.assertEqual(url, 'https://example.invalid:8006/api2/json/cluster/backup')
+        self.assertNotIn('mailto', result['data'][0])
+        self.assertNotIn('notes-template', result['data'][0])
+        self.assertFalse(result['capabilities']['backup_recency_assurance'])
+        self.assertFalse(result['capabilities']['pbs_health'])
+        empty, _ = self.read('backup_jobs', [])
+        self.assertEqual(empty['data'], [])
+
+    def test_backup_jobs_unavailable_and_invalid_payload(self):
+        exc = urllib.error.HTTPError('https://example.invalid:8006', 403, 'private', {}, None)
+        with patch.object(self.client._opener, 'open', side_effect=exc):
+            result = self.client.backup_jobs()
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['error_code'], 'PERMISSION_DENIED')
+        for body in ([{'id': 42}], [{'id': 'job-a', 'enabled': 4}], [{}]):
+            with patch.object(self.client._opener, 'open', return_value=Response(body)):
+                self.assertEqual(self.client.backup_jobs()['error_code'], 'MALFORMED_RESPONSE')
+
+    def test_snapshot_preserves_metric_capabilities(self):
+        responses = [Response({'version': '8.4'}), Response({'cpu': 0}),
+                     Response([]), Response([]), Response([]), Response([])]
+        with patch.object(self.client._opener, 'open', side_effect=responses):
+            result = self.client.snapshot('host-a')
+        self.assertTrue(result['data']['resource_capabilities']['node_status']['cpu'])
+        self.assertFalse(result['data']['resource_capabilities']['node_status']['memory'])
 
 
 if __name__ == "__main__":
