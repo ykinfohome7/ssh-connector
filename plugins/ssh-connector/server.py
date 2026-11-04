@@ -1425,6 +1425,65 @@ async def codespace_stop(name: str, confirm: bool = False) -> str:
     return await _codespaces.stop(name, confirm)
 
 
+# ---------------- SNMP (read-only monitoring) ----------------
+# Only configured device names from servers.yaml -> snmp.devices, all hosts inside
+# snmp.allowed_networks. GET / GETNEXT / GETBULK / bounded WALK only; no SNMP SET exists.
+import snmp_tools as _snmp
+
+_snmp.AUDIT = HISTORY
+
+
+@mcp.tool()
+async def snmp_health(device: str) -> str:
+    """Read-only SNMP liveness of a configured device: authenticated GET of sysUpTime and sysName."""
+    return await _snmp.snmp_health(device)
+
+
+@mcp.tool()
+async def snmp_device_info(device: str) -> str:
+    """Read-only device facts: sysDescr/sysName/uptime, model and firmware (ENTITY-MIB), temperature/fans/power
+    (ENTITY-SENSOR-MIB). Anything the device does not report is UNAVAILABLE, never estimated."""
+    return await _snmp.snmp_device_info(device)
+
+
+@mcp.tool()
+async def snmp_get(device: str, oids: list[str]) -> str:
+    """SNMP GET of numeric OIDs (max 32) on a configured device. Read-only."""
+    return await _snmp.snmp_get(device, oids)
+
+
+@mcp.tool()
+async def snmp_getnext(device: str, oids: list[str]) -> str:
+    """SNMP GETNEXT of numeric OIDs (max 32) on a configured device. Read-only."""
+    return await _snmp.snmp_getnext(device, oids)
+
+
+@mcp.tool()
+async def snmp_getbulk(device: str, oids: list[str], max_repetitions: int = 10) -> str:
+    """SNMP GETBULK (v2c/v3) with max_repetitions capped at 25. Read-only."""
+    return await _snmp.snmp_getbulk(device, oids, max_repetitions)
+
+
+@mcp.tool()
+async def snmp_walk(device: str, oid: str, max_results: int = 500) -> str:
+    """Bounded SNMP WALK of one subtree (max 2000 results, 20 s); reports truncated=true when a limit hit. Read-only."""
+    return await _snmp.snmp_walk(device, oid, max_results)
+
+
+@mcp.tool()
+async def snmp_interfaces(device: str, include: str = "*") -> str:
+    """Interface inventory and status (IF-MIB/IF-X-MIB): name, alias, admin/oper status, speed, error counters.
+    include is a glob on the interface name, e.g. "Te*"."""
+    return await _snmp.snmp_interfaces(device, include)
+
+
+@mcp.tool()
+async def snmp_interface_stats(device: str, include: str = "*", sample_seconds: int = 5) -> str:
+    """Traffic, utilisation and error rates from two samples sample_seconds apart (1-30). Uses 64-bit counters;
+    handles rollover, reboot and ifIndex changes by reporting no rate instead of a wrong one."""
+    return await _snmp.snmp_interface_stats(device, include, sample_seconds)
+
+
 # ---------------- help: всички команди, описание (BG/EN) и шаблон ----------------
 # Всеки шаблон е готов за пускане: сменяте само своите стойности.
 HELP = {
@@ -1491,6 +1550,23 @@ HELP = {
     "start_watch": ("Следи грешки, сривове, влизания", "Watch errors, crashes, logins", {"server": "BGDB"}),
     "stop_watch": ("Спира следенето", "Stop watching", {"server": "BGDB"}),
     "get_events": ("Събрани събития", "Collected events", {"server": "", "limit": 50}),
+    "snmp_health": ("SNMP проверка на устройство (само четене)", "SNMP liveness of a device (read-only)",
+                    {"device": "realhd-switch"}),
+    "snmp_device_info": ("Модел, firmware, uptime, температура ако е налична (само четене)",
+                         "Model, firmware, uptime, temperature if available (read-only)", {"device": "realhd-switch"}),
+    "snmp_get": ("SNMP GET по OID (само четене)", "SNMP GET by OID (read-only)",
+                 {"device": "realhd-switch", "oids": ["1.3.6.1.2.1.1.5.0"]}),
+    "snmp_getnext": ("SNMP GETNEXT по OID (само четене)", "SNMP GETNEXT by OID (read-only)",
+                     {"device": "realhd-switch", "oids": ["1.3.6.1.2.1.1"]}),
+    "snmp_getbulk": ("SNMP GETBULK (само четене)", "SNMP GETBULK (read-only)",
+                     {"device": "realhd-switch", "oids": ["1.3.6.1.2.1.2.2.1.2"], "max_repetitions": 10}),
+    "snmp_walk": ("Ограничен SNMP WALK на клон (само четене)", "Bounded SNMP WALK of a subtree (read-only)",
+                  {"device": "realhd-switch", "oid": "1.3.6.1.2.1.2.2.1.2", "max_results": 500}),
+    "snmp_interfaces": ("Портове: състояние, скорост, грешки", "Ports: status, speed, errors",
+                        {"device": "realhd-switch", "include": "*"}),
+    "snmp_interface_stats": ("Трафик, натоварване и грешки в секунда за портовете",
+                             "Port traffic, utilisation and error rates",
+                             {"device": "realhd-switch", "include": "*", "sample_seconds": 5}),
 }
 
 
