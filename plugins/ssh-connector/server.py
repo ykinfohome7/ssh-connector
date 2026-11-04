@@ -28,6 +28,8 @@ import asyncssh
 import yaml
 from mcp.server.fastmcp import FastMCP
 
+import endpoint_info  # read-only endpoint/Tailscale report (no side effects on import)
+
 CONFIG_PATH = os.environ.get("SSH_CONNECTOR_CONFIG", str(Path(__file__).with_name("servers.yaml")))
 
 
@@ -46,6 +48,7 @@ def _read_version():
 
 
 APP_VERSION = _read_version()
+TRANSPORT = {"mode": "stdio", "note": "local plugin over stdio; no public address needed"}
 mcp = FastMCP("ssh-connector")
 try:  # allow access through a tunnel / reverse proxy (Host header is the public domain); auth is enforced below
     from mcp.server.transport_security import TransportSecuritySettings
@@ -894,10 +897,15 @@ TS_API = "https://api.tailscale.com/api/v2"
 
 
 async def _ts_cli(*args):
-    """Пуска `tailscale ...` локално и връща (код, изход)."""
+    """Пуска `tailscale ...` локално (само четене) и връща (код, изход). При timeout процесът се спира."""
     proc = await asyncio.create_subprocess_exec("tailscale", *args, stdout=asyncio.subprocess.PIPE,
                                                 stderr=asyncio.subprocess.PIPE)
-    out, err = await asyncio.wait_for(proc.communicate(), timeout=20)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=20)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise
     return proc.returncode, (out or err).decode(errors="replace")
 
 
@@ -919,24 +927,33 @@ async def _ts_api(method, path, body=None):
 
 
 @mcp.tool()
-async def tailscale_status() -> str:
-    """Tailscale on the connector host: version, this device (name, IPs, online), the account it is logged in with, Funnel."""
+async def tailscale_status(verify_reachability: bool = False) -> str:
+    """Tailscale on the connector host (version, device, account) plus an honest endpoint report:
+    transport (stdio plugin / HTTP backend), configured address, Serve (tailnet) vs Funnel (public) vs unknown,
+    whether reachability was checked, and safe MCP endpoint templates (never a token).
+    verify_reachability=true sends one GET without credentials to the configured address (expects 401).
+    Read-only: never runs tailscale up/login/serve/funnel."""
+    endpoint = await endpoint_info.collect(TRANSPORT, lambda *a: _ts_cli(*a), verify=bool(verify_reachability))
     try:
         code, ver = await _ts_cli("version")
         code2, st = await _ts_cli("status", "--json")
         if code2 != 0:
-            raise RuntimeError("tailscale is not running here: " + st.strip()[:200])
+            raise RuntimeError("tailscale is not running here: " + endpoint_info.redact(st.strip()[:200]))
         j = json.loads(st)
         me = j.get("Self") or {}
         user = (j.get("User") or {}).get(str(me.get("UserID")), {})
-        _, funnel = await _ts_cli("funnel", "status")
         return json.dumps({"version": ver.splitlines()[0] if ver else None, "backend_state": j.get("BackendState"),
                            "device": me.get("HostName"), "dns_name": (me.get("DNSName") or "").rstrip("."),
                            "ips": me.get("TailscaleIPs"), "online": me.get("Online"),
                            "account": user.get("LoginName"), "tailnet": (j.get("CurrentTailnet") or {}).get("Name"),
-                           "funnel_on": "Funnel on" in funnel}, indent=2)
+                           "funnel_on": endpoint["exposure"]["mode"] == "funnel",
+                           "endpoint": endpoint}, indent=2)
+    except FileNotFoundError:
+        return json.dumps({"error": "tailscale is not installed on the connector host", "endpoint": endpoint},
+                          indent=2)
     except Exception as e:
-        return _err(e)
+        return json.dumps({"error": endpoint_info.redact(f"{type(e).__name__}: {e}"), "endpoint": endpoint},
+                          indent=2)
 
 
 @mcp.tool()
@@ -1038,7 +1055,8 @@ async def health_status() -> str:
     except Exception as e:
         cfg_ok, cfg_error = False, f"{type(e).__name__}: {e}"
     return json.dumps({
-        "version": APP_VERSION, "commit": _git_sha(), "config_ok": cfg_ok, "config_error": cfg_error,
+        "version": APP_VERSION, "commit": _git_sha(), "transport": TRANSPORT,
+        "config_ok": cfg_ok, "config_error": cfg_error,
         "servers": {n: {"connected": s._alive(), "active_host": s.active_host, "last_error": s.last_error,
                         "key_age_days": _key_age_days(s.cfg),
                         "key_rotation_due": (_key_age_days(s.cfg) or 0) >= ROTATE_MAX_DAYS}
@@ -1512,7 +1530,9 @@ HELP = {
                        "password_env": ""}),
     "session_configure": ("Таймаути, опити, keepalive, паралелни сесии", "Timeouts, retries, keepalive, parallel sessions",
                           {"server": "BGDB", "connect_timeout": 10, "retries": 3, "command_timeout": 300}),
-    "tailscale_status": ("Tailscale: версия, устройство, акаунт, Funnel", "Tailscale: version, device, account, Funnel", {}),
+    "tailscale_status": ("Tailscale и адрес на конектора: stdio/HTTP, Serve (tailnet) или Funnel (публичен), проверен ли е, MCP шаблон без токен",
+                         "Tailscale and connector address: stdio/HTTP, Serve (tailnet) or Funnel (public), verified or not, MCP template without token",
+                         {"verify_reachability": False}),
     "tailscale_devices": ("Устройства в Tailscale мрежата", "Devices in the tailnet", {"online_only": False}),
     "tailscale_keys": ("Списък с auth ключове (без стойностите)", "List auth keys (no values)", {}),
     "tailscale_key_create": ("Нов auth ключ (само с потвърждение)", "New auth key (confirm required)",
@@ -1670,6 +1690,11 @@ if __name__ == "__main__":
             raise SystemExit("Set SSH_CONNECTOR_TOKEN to a random secret of at least 24 characters "
                              "(e.g. python3 -c 'import secrets;print(secrets.token_urlsafe(32))')")
         import uvicorn
-        uvicorn.run(http_app(token), host=a.host, port=a.port)
+        TRANSPORT.clear()
+        TRANSPORT.update({"mode": "http", "host": a.host, "port": a.port,
+                          "note": "MCP over streamable HTTP; reachable from outside only through "
+                                  "Tailscale Serve/Funnel or another proxy"})
+        # access_log=False: uvicorn's access log would print the secret-path URL (/<token>/mcp) in full.
+        uvicorn.run(http_app(token), host=a.host, port=a.port, access_log=False)
     else:
         mcp.run()
