@@ -116,6 +116,19 @@ class SecurityTests(unittest.TestCase):
                    if type(h).__name__ == "ProxyHandler"]
         self.assertTrue(all(h.proxies == {} for h in proxies))
 
+    def test_private_helper_rejects_non_whitelisted_get_paths(self):
+        client = self.client()
+        with patch.object(client._opener, "open") as mocked:
+            for args in (
+                (None, "api_version", "nodes/host-a/config", dict),
+                ("host-a", "qemu", "nodes/host-a/qemu/123/config", list),
+                ("host-a", "unknown", "nodes/host-a/apt", list),
+                ("host-a", "backup_tasks", "nodes/host-a/tasks", list),
+            ):
+                with self.subTest(args=args), self.assertRaises(ValueError):
+                    client._get(*args)
+            mocked.assert_not_called()
+
     def test_mutating_http_methods_have_no_api_surface(self):
         client = self.client()
         for name in ("post", "put", "patch", "delete", "request", "raw_get",
