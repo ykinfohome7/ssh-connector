@@ -4,7 +4,12 @@ import re
 
 
 def number(value):
-    return type(value) in (int, float) and math.isfinite(value) and value >= 0
+    if type(value) not in (int, float) or value < 0:
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def fields(item, strings=(), numbers=()):
@@ -23,6 +28,32 @@ def fields(item, strings=(), numbers=()):
                 raise ValueError('Invalid numeric metric')
             out[key] = item[key]
     return out
+
+
+def boolean_flags(item, *keys):
+    # PVE boolean полета приемат JSON bool или integer 0/1, но не други числа.
+    out = {}
+    for key in keys:
+        if item.get(key) is not None:
+            value = item[key]
+            if type(value) not in (bool, int) or value not in (0, 1):
+                raise ValueError('Invalid boolean flag')
+            out[key] = int(value)
+    return out
+
+
+def task_outcome(row):
+    # PVE понякога връща само свободен error text; не го приемаме за доказан failure.
+    status = row.get('status')
+    if 'endtime' not in row:
+        return 'in_progress' if status == 'RUNNING' else 'unknown'
+    if status == 'OK':
+        return 'completed_success'
+    if status and re.fullmatch(r'WARNINGS: [0-9]+', status):
+        return 'completed_warning'
+    if status == 'ERROR' or (status and re.fullmatch(r'(?:TASK )?ERROR: .+', status)):
+        return 'completed_failure'
+    return 'unknown'
 
 
 def normalize(resource, value):
@@ -60,10 +91,15 @@ def normalize(resource, value):
     if resource == 'storage':
         out = []
         for item in value:
-            row = fields(item, ('storage', 'type'), ('used', 'total', 'avail', 'active', 'enabled'))
+            row = fields(item, ('storage', 'type'), ('used', 'total', 'avail'))
+            row.update(boolean_flags(item, 'active', 'enabled'))
+            if any(type(row[key]) is not int for key in ('used', 'total', 'avail') if key in row):
+                raise ValueError('Storage bytes must be integers')
             if not row.get('storage'):
                 raise ValueError('Missing storage identity')
             used, total = row.get('used'), row.get('total')
+            if total is not None and any(row.get(key, 0) > total for key in ('used', 'avail')):
+                raise ValueError('Contradictory storage capacity')
             capacity = used is not None and total is not None and total > 0
             row['warning'] = used / total >= .9 if capacity else None
             if capacity:
@@ -87,11 +123,10 @@ def normalize(resource, value):
     if resource == 'backup_jobs':
         jobs = []
         for item in value:
-            row = fields(item, ('id', 'node', 'storage', 'schedule'), ('enabled',))
+            row = fields(item, ('id', 'node', 'storage', 'schedule'))
+            row.update(boolean_flags(item, 'enabled'))
             if not row.get('id'):
                 raise ValueError('Missing job identity')
-            if 'enabled' in row and row['enabled'] not in (0, 1):
-                raise ValueError('Invalid enabled flag')
             row['capabilities'] = {key: key in row for key in ('node', 'storage', 'schedule', 'enabled')}
             jobs.append(row)
         return jobs, {'backup_jobs': True, 'backup_recency_assurance': False, 'pbs_health': False}
@@ -101,8 +136,14 @@ def normalize(resource, value):
             row = fields(item, ('upid', 'id', 'type', 'status'), ('starttime', 'endtime'))
             if row.get('type') != 'vzdump':
                 continue
-            row['outcome_available'] = 'endtime' in row and 'status' in row
-            if row['outcome_available'] and row['status'] != 'OK':
+            for key in ('starttime', 'endtime'):
+                if key in row and type(row[key]) is not int:
+                    raise ValueError('Task time must be an integer')
+            if 'starttime' in row and 'endtime' in row and row['endtime'] < row['starttime']:
+                raise ValueError('Task ended before it started')
+            row['outcome'] = task_outcome(row)
+            row['outcome_available'] = row['outcome'] not in ('unknown', 'in_progress')
+            if row['outcome'] == 'completed_failure':
                 failures.append(row)
             tasks.append(row)
         return {'tasks': tasks, 'failures': failures, 'total_returned': len(tasks)}, {

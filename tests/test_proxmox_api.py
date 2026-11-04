@@ -372,5 +372,93 @@ class APITests(unittest.TestCase):
         self.assertFalse(result['data']['resource_capabilities']['node_status']['memory'])
 
 
+    def test_failed_snapshot_preserves_every_resource_error(self):
+        with patch.dict(os.environ, {'KSSH_PROXMOX_TOKEN_ID': '', 'KSSH_PROXMOX_TOKEN_SECRET': ''}):
+            with patch.object(self.client._opener, 'open') as opened:
+                result = self.client.snapshot('host-a')
+            opened.assert_not_called()
+        self.assertIsNone(result['data'])
+        self.assertEqual(len(result['resource_errors']), 6)
+        self.assertTrue(all(code == 'UNAVAILABLE' for code in result['resource_errors'].values()))
+        self.assertEqual(len(result['resource_capabilities']), 6)
+
+    def test_huge_numbers_are_malformed_without_uncaught_overflow(self):
+        for method, data, args in (
+            ('node_status', {'cpu': 10**400}, ('host-a',)),
+            ('storage', [{'storage': 'lab', 'used': 10**400, 'total': 10**400}], ('host-a',)),
+            ('guest_status', {'mem': 10**400}, ('host-a', 'qemu', 703)),
+        ):
+            with self.subTest(method=method):
+                with patch.object(self.client._opener, 'open', return_value=Response(data)):
+                    result = getattr(self.client, method)(*args)
+                self.assertEqual(result['error_code'], 'MALFORMED_RESPONSE')
+                self.assertEqual(result['status'], 'UNKNOWN')
+
+    def test_duplicate_json_keys_are_rejected_at_every_depth(self):
+        bodies = [b'{"data": {"version":"8.4"}, "data": {"version":"9"}}',
+                  b'{"data":{"version":"8.4", "version":"9"}}',
+                  b'{"data":{"version":"8.4"}, "extra":{"key":1,"key":2}}']
+        for body in bodies:
+            with patch.object(self.client._opener, 'open', return_value=Response(body)):
+                self.assertEqual(self.client.version()['error_code'], 'MALFORMED_RESPONSE')
+
+    def test_nonstandard_json_numbers_are_rejected_even_in_ignored_fields(self):
+        for value in (b'NaN', b'Infinity', b'-Infinity'):
+            body = b'{"data":{"version":"8.4"},"ignored":' + value + b'}'
+            with patch.object(self.client._opener, 'open', return_value=Response(body)):
+                self.assertEqual(self.client.version()['error_code'], 'MALFORMED_RESPONSE')
+
+    def test_deep_json_is_rejected_without_changing_recursion_limit(self):
+        for depth in (70, 2000):
+            body = b'{"data":{"version":"8.4"},"ignored":' + b'[' * depth + b'0' + b']' * depth + b'}'
+            with patch.object(self.client._opener, 'open', return_value=Response(body)):
+                self.assertEqual(self.client.version()['error_code'], 'MALFORMED_RESPONSE')
+
+    def test_inconsistent_storage_and_invalid_flags_fail_the_sample(self):
+        for row in ({'storage': 'lab', 'used': 101, 'total': 100},
+                    {'storage': 'lab', 'active': 2}, {'storage': 'lab', 'enabled': 1.5}):
+            with patch.object(self.client._opener, 'open', return_value=Response([row])):
+                result = self.client.storage('host-a')
+            self.assertFalse(result['ok'])
+            self.assertIsNone(result['data'])
+            self.assertEqual(result['error_code'], 'MALFORMED_RESPONSE')
+
+    def test_unknown_backup_outcomes_are_not_failed(self):
+        result, _ = self.read('backup_tasks', [
+            {'type': 'vzdump', 'endtime': 20, 'status': x}
+            for x in ('', 'unknown', 'unexpected status', 'unsupported', 'WARNINGS: 1')
+        ], 'host-a')
+        self.assertEqual(result['data']['failures'], [])
+        self.assertEqual(result['data']['tasks'][-1]['outcome'], 'completed_warning')
+        self.assertFalse(result['data']['tasks'][0]['outcome_available'])
+
+    def test_credentials_are_redacted_from_multiple_public_fields(self):
+        cases = [('version', {'version': 'test-value-not-real', 'release': 'monitor@pve!readonly'}, ()),
+                 ('qemu', [{'vmid': 703, 'name': 'test-value-not-real'}], ('host-a',)),
+                 ('backup_tasks', [{'type': 'vzdump', 'status': 'test-value-not-real'}], ('host-a',)),
+                 ('backup_jobs', [{'id': 'test-value-not-real', 'schedule': 'monitor@pve!readonly'}], ())]
+        for method, body, args in cases:
+            with patch.object(self.client._opener, 'open', return_value=Response(body)):
+                result = getattr(self.client, method)(*args)
+            self.assertTrue(result['ok'])
+            text = json.dumps(result)
+            self.assertNotIn('test-value-not-real', text)
+            self.assertNotIn('monitor@pve!readonly', text)
+            self.assertNotIn('PVEAPIToken', text)
+
+    def test_guest_and_job_helpers_cannot_target_mutations(self):
+        with patch.object(self.client._opener, 'open') as mocked:
+            for node, resource, path, expected, guest in (
+                ('host-a', 'guest_status', 'nodes/host-a/qemu/703/status/start', dict, ('qemu', 703)),
+                ('host-a', 'guest_status', 'nodes/host-a/qemu/703/config', dict, ('qemu', 703)),
+                (None, 'backup_jobs', 'cluster/backup/job-a', list, None),
+                (None, 'backup_jobs', 'cluster/backup?path=evil', list, None),
+                ('host-a', 'guest_status', 'nodes/host-a/qemu/703/status/current', dict, ('lxc', 703)),
+            ):
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    self.client._get(node, resource, path, expected, guest=guest)
+            mocked.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

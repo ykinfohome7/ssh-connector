@@ -212,9 +212,9 @@ The 2 MiB body limit also applies to this list. No job mutation endpoints exist.
 Read-only review refs at the time of this change:
 
 - PR #12: `85bb7cbe863013b9606f7155ccbea8fae39ce762`.
-- PR #14: `282550196b0a51476668434a3aafe0e26d661708`.
+- PR #14: `4722bec732b30fd00ca458cd6d9a6469670a89b1` (review refreshed after its deadline/state/notifier changes).
 
-PR #14's `.github/workflows/test.yml` does **not** invoke its 69 monitoring tests.
+PR #14's `.github/workflows/test.yml` still does **not** invoke the monitoring suites. Its latest report claims 98 local tests (the previous baseline was 69); those are Claude's reported results, not tests executed by this Proxmox task.
 Its prepared `docs/CI-MONITORING-STEP.md` remains the owner's integration task.
 This branch does not change that workflow or duplicate that fix. The existing
 separate `proxmox-api-offline` workflow only covers the Proxmox suite; its presence
@@ -227,22 +227,27 @@ DEGRADED directly would instead be treated as a failure. The future adapter must
 explicitly translate these collection states, retain the raw sample and its
 resource_capabilities, and avoid calling status_for(AUTH_FAILED) for API errors:
 that helper currently maps auth failures to DOWN, which does not establish a
-powered-off physical node. Example **proposal only**, not installed into engine:
+powered-off physical node. The standalone executable contract now lives in
+`monitoring/proxmox_adapter.py`; it does not import, register with or modify the
+engine. Future integration can call:
 
 ```python
-import asyncio
+from monitoring.proxmox_adapter import proxmox_probe
 
-async def proposed_proxmox_probe(client, node):
-    sample = await asyncio.to_thread(client.snapshot, node)
-    collected = sample['ok'] and sample['status'] == 'OK'
-    return {
-        'ok': collected,
-        'status': 'UP' if collected else 'UNKNOWN',
-        'error_code': None if collected else (sample['error_code'] or 'UNAVAILABLE'),
-        'detail': 'API collection complete' if collected else 'API collection incomplete',
-        'sample': sample,
-    }
+# client is constructed from trusted operator configuration, not tool arguments.
+# check = await proxmox_probe(client, "lab-node")
 ```
+
+`adapt_snapshot(sample)` is the pure translation function; `proxmox_probe(client,
+node)` validates the node before dispatching `client.snapshot(node)` through
+`asyncio.to_thread`. It returns `ok`, `status`, `error_code`, a fixed safe `detail`,
+and the original `sample` object with errors/capabilities unchanged. Complete
+six-resource collection maps to UP; incomplete, failed or malformed collection maps
+to UNKNOWN, never DOWN. Empty inventories remain successful data. Missing metric
+capabilities remain missing: collection UP is not a CPU/RAM/backup-health assertion.
+The wrapper preserves top-level classified errors, maps unexpected worker exceptions
+to UNAVAILABLE without exception text, and propagates cancellation. It adds no
+polling schedule, state, alerts or notifier. **Engine integration: NOT INTEGRATED.**
 
 Run this behind the engine's existing concurrency bound; own worker cancellation
 and shutdown explicitly because cancellation of to_thread does not stop blocking
@@ -263,3 +268,68 @@ sets VMID bounds 100..999999999;
 [PVE API2 Backup](https://github.com/proxmox/pve-manager/blob/master/PVE/API2/Backup.pm)
 defines the GET schedule list with Sys.Audit at `/`. Verify the deployed release's
 schema independently before a separately authorized real-device test.
+
+## Numeric, JSON and storage hardening
+
+All selected numeric metrics reject booleans, negatives, non-finite values and
+integers too large for finite float conversion. The pure normalizer raises
+ValueError on malformed fields; the HTTP client reports MALFORMED_RESPONSE.
+JSON rejects duplicate object keys at every depth, nonstandard NaN/Infinity
+constants and nesting deeper than 64 levels (root depth 0). Python's earlier
+parser/recursion limit is also handled safely. The response byte cap remains in
+force; no recursion or integer-parser safety limits are disabled.
+
+Storage byte counters must be nonnegative integers. `active` and `enabled` are
+boolean flags, not metrics: JSON true/false and integer 0/1 are accepted and
+normalized to 0/1; other values including float 1.0 are rejected. Backup-job
+`enabled` uses the same rule. Contradictory supplied capacity (`used > total` or
+`avail > total`) is malformed, including positive usage against a zero total.
+Zero total with zero/missing usage has unavailable utilization, not 0% utilization;
+missing capacity remains unknown. An inactive storage can still raise its explicit
+availability warning without claiming a known capacity. No `used + avail == total`
+assumption is made because reservations and backend reporting can differ.
+
+## Conservative PVE task outcome policy
+
+Public upstream [PVE API2 Tasks](https://github.com/proxmox/pve-manager/blob/master/PVE/API2/Tasks.pm)
+returns RUNNING for active tasks and optional endtime/status for archived tasks.
+[PVE UPID](https://github.com/proxmox/pve-common/blob/master/src/PVE/UPID.pm)
+recognizes OK, WARNINGS: N, and task-error text, but strips the TASK ERROR prefix
+when reading some errors from logs. Its classifier treats most other text as
+error. This collector intentionally uses a **more conservative** evidence policy:
+
+| Required evidence | outcome | Included in failures |
+| --- | --- | --- |
+| endtime plus exact OK | completed_success | No |
+| endtime plus WARNINGS: N | completed_warning | No |
+| endtime plus exact ERROR or explicit ERROR: text / TASK ERROR: text | completed_failure | Yes |
+| no endtime plus exact RUNNING | in_progress | No |
+| missing/empty/unknown/unexpected/unsupported status, or unrecognized bare error text | unknown | No |
+
+Each task has `outcome` and `outcome_available`; the latter is false for unknown
+and in_progress. Unknown status is not proof of backup failure or success.
+Consequently a real PVE failure returned only as bare error text can remain
+unknown: this limitation is deliberate and must not be hidden. No task-log GET
+or detail endpoint was added to resolve it. Timestamps must be nonnegative
+integers, and endtime before starttime is malformed. These are outcomes of visible
+PVE tasks, not proof of backup usability, recency, complete history or PBS health.
+
+Offline reproducibility and tested commit evidence are recorded separately in
+[PROXMOX-TEST-RESULTS.md](PROXMOX-TEST-RESULTS.md). Adapter tests require normal
+asyncio thread wakeups; the onboarding command sandbox stalled them, while the
+approved execution context completed the same socket-guarded offline suite.
+
+БГ: непознат task status не е failed backup; WARNINGS не е ERROR. Невалидни
+числа/JSON/capacity дават MALFORMED_RESPONSE. Adapter-ът е готов за отделно ревю,
+но не е свързан към engine-а и няма production тестове.
+
+Snapshots also expose top-level `resource_errors` and `resource_capabilities`, so
+an all-failed snapshot can retain every sub-request's classification even though
+its normalized `data` is null. The standalone adapter preserves those fields in
+its original sample without rewriting them.
+
+The refreshed PR #14 contract dispatches checks in `monitor._run_checks` and wraps
+checks in a per-target deadline. This standalone adapter remains unregistered;
+that future integration must not mistake deadline cancellation for termination
+of its blocking worker. PR #14's updated state store, notifier and interface
+checks were inspected read-only and are not copied or modified here.

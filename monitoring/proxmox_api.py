@@ -77,6 +77,31 @@ def validated_node(value):
     return urllib.parse.quote(value, safe="")
 
 
+def _json_object(pairs):
+    # Отказваме duplicate keys вместо да скриваме първата стойност с последната.
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('Duplicate JSON key')
+        result[key] = value
+    return result
+
+
+def _json_constant(value):
+    raise ValueError('Nonstandard JSON number')
+
+
+def _check_json_depth(value):
+    # Ограничаваме структурната сложност независимо от recursion limit на Python.
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > 64:
+            raise ValueError('JSON nesting limit exceeded')
+        children = item.values() if isinstance(item, dict) else item if isinstance(item, list) else ()
+        pending.extend((child, depth + 1) for child in children)
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
         return None
@@ -103,7 +128,8 @@ class ProxmoxReadOnlyClient:
             raise ValueError("An explicit list of allowed_hosts is required")
         if hostname not in {canonical_host(x) for x in allowed_hosts}:
             raise ValueError("Target is not allowlisted")
-        if not ENV.fullmatch(token_id_env) or not ENV.fullmatch(token_secret_env):
+        if any(not isinstance(ref, str) or not ENV.fullmatch(ref)
+               for ref in (token_id_env, token_secret_env)):
             raise ValueError("Credentials must be referenced by environment name")
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 0 < timeout <= 60:
             raise ValueError("Timeout must be > 0 and <= 60 seconds")
@@ -221,7 +247,9 @@ class ProxmoxReadOnlyClient:
                 if len(raw) > self.max_response_bytes:
                     return self._result(
                         node, resource, error_code="MALFORMED_RESPONSE")
-            payload = json.loads(raw.decode("utf-8"), parse_constant=lambda _: (_ for _ in ()).throw(ValueError("Invalid JSON number")))
+            payload = json.loads(raw.decode("utf-8"), parse_constant=_json_constant,
+                                 object_pairs_hook=_json_object)
+            _check_json_depth(payload)
             if (not isinstance(payload, dict) or "data" not in payload or
                     type(payload["data"]) is not expected_type):
                 raise ValueError("Malformed JSON API envelope")
@@ -311,7 +339,11 @@ class ProxmoxReadOnlyClient:
         caps["pbs_health"] = False
         status = ("OK" if passed == len(parts) else
                   "DEGRADED" if passed else "UNAVAILABLE")
-        return self._result(
+        result = self._result(
             node, "snapshot", data=data if passed else None,
             error_code="UNAVAILABLE" if not passed else None,
             status=status, capabilities=caps)
+        # Запазваме диагностиката и когато data е null при пълен отказ.
+        result["resource_errors"] = data["errors"]
+        result["resource_capabilities"] = data["resource_capabilities"]
+        return result

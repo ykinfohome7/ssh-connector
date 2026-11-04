@@ -66,7 +66,7 @@ class SecurityTests(unittest.TestCase):
                 mocked.assert_not_called()
 
     def test_credential_variables_only_and_missing_token_prevents_io(self):
-        for env_ref in ("SECRET=abc", "abc", "BAD-NAME", "ROOT PASSWORD"):
+        for env_ref in ("SECRET=abc", "abc", "BAD-NAME", "ROOT PASSWORD", None, 123, [], {}):
             with self.subTest(env_ref=env_ref), self.assertRaises(ValueError):
                 self.client(token_secret_env=env_ref)
         with patch.dict(os.environ, {
