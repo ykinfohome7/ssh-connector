@@ -110,11 +110,13 @@ class SecurityTests(unittest.TestCase):
             type(h).__name__ == "HTTPRedirectHandler"
             for h in client._opener.handlers))
 
-    def test_proxy_environment_does_not_affect_opener(self):
-        client = self.client()
-        proxies = [h for h in client._opener.handlers
-                   if type(h).__name__ == "ProxyHandler"]
-        self.assertTrue(all(h.proxies == {} for h in proxies))
+    def test_configured_proxy_is_preserved(self):
+        # Управляваната среда изисква наследения proxy за policy enforcement.
+        with patch.dict(os.environ, {"https_proxy": "http://proxy.invalid:8080"}):
+            client = self.client()
+            proxies = [h for h in client._opener.handlers
+                       if type(h).__name__ == "ProxyHandler"]
+            self.assertTrue(any(h.proxies.get("https") == "http://proxy.invalid:8080" for h in proxies))
 
     def test_mutating_http_methods_have_no_api_surface(self):
         client = self.client()

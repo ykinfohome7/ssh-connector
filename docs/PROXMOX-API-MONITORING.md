@@ -1,7 +1,7 @@
 # Proxmox VE read-only HTTPS API for KSSH
 
 Issue #13 · independent branch: codex/proxmox-readonly-api  
-Standalone and opt-in: **NOT deployed; NOT tested against real devices**.
+Standalone and opt-in: **mock-tested only**; **NOT deployed; NOT tested against real devices**.
 
 ## Isolation from PR #12
 
@@ -12,12 +12,12 @@ A successful TCP connection to port 8006 is NOT evidence of a healthy Proxmox AP
 ## Security model
 
 - Require HTTPS origin with port **8006**, no credentials, path, query or fragment in base URL.
-- Explicit exact hostname/IP allowlist, no wildcards or implicit targets. Invalid targets are rejected before network I/O.
+- Explicit exact hostname/IP allowlist (port is pinned to 8006), no wildcards or implicit targets. Invalid targets are rejected before network I/O.
 - Verified TLS chain and hostname, with optional approved custom CA bundle. Never disable certificate checking. Connecting to an IP requires a matching certificate IP SAN.
 - API token ID and secret are looked up by environment variable references at request time. No passwords, inline credentials or root password authentication. Use a separate least-privileged token with privilege separation.
-- Only hard-coded GET endpoints are implemented. No POST, PUT, PATCH, DELETE, arbitrary URLs, redirects, inherited proxies, VM power actions or config changes.
-- Configurable 0–60 second timeout (zero is rejected), 2 MiB response cap, no retries, no background polling.
-- Structured JSON logs include UTC time, correlation ID, node, resource, status and error code only; no token, URL, raw HTTP response or raw exception.
+- Only hard-coded GET endpoints are implemented. No POST, PUT, PATCH, DELETE, arbitrary URLs, redirects, VM power actions or config changes.
+- Configurable 0–60 second timeout (zero is rejected), 2 MiB response cap, configurable response cap up to 2 MiB, no retries, no background polling.
+- Structured JSON logs include UTC time, correlation ID, resource, status and error code only (node names are omitted from logs); no token, URL, raw HTTP response or raw exception.
 
 For an authorized future installation, grant only the Proxmox audit/view privileges required by the chosen endpoints. Common privileges to review include Sys.Audit, VM.Audit and Datastore.Audit on appropriately scoped ACL paths. Do not use administrator or VM.PowerMgmt roles. A 403 becomes PERMISSION_DENIED, never an empty or stopped VM list.
 
@@ -31,7 +31,7 @@ For an authorized future installation, grant only the Proxmox audit/view privile
 | storage(node) | /api2/json/nodes/{node}/storage | Capacity, optional 90% warning, inactive storage |
 | qemu(node) | /api2/json/nodes/{node}/qemu | Dynamically discovered QEMU status |
 | lxc(node) | /api2/json/nodes/{node}/lxc | Dynamically discovered LXC status |
-| backup_tasks(node) | /api2/json/nodes/{node}/tasks?typefilter=vzdump&limit=100 | Visible Proxmox VE vzdump task outcomes |
+| backup_tasks(node) | /api2/json/nodes/{node}/tasks?typefilter=vzdump&limit=100&source=all | Visible Proxmox VE vzdump task outcomes |
 | snapshot(node) | Six fixed GET calls above | Aggregated adapter output |
 
 Optional netin/netout are emitted only when the official API response includes numeric values. Missing values are omitted; do not invent zeroes. Empty QEMU/LXC lists are valid only after a successful API response.
@@ -120,3 +120,65 @@ Tests mock the HTTP opener and cover valid JSON, errors, timeouts, 401/403/404, 
 ## Накратко на български
 
 Самостоятелен read-only клиент за Proxmox VE HTTPS API. Няма връзка с продукционните pve1/pve2, няма root пароли, промени по VM или deployment. Изисква валиден TLS сертификат, предварително разрешен host и отделен API токен с минимални права. Връща само действително достъпните през API данни, различава забранени права от спрян сървър и не представя PVE backup task history за PBS health.
+
+## Hardened validation and adapter semantics
+
+Operator configuration (not free-form tool arguments) owns base_url, allowed_hosts,
+optional allowed_origins, CA path, timeout and credential references. Every accepted
+host is pinned to HTTPS port 8006, so allowed_hosts denotes exact origins at that
+port; optional allowed_origins adds an explicit canonical HTTPS-origin constraint.
+No DNS/IP discovery or wildcard matching is performed. DNS integrity and the trusted
+CA remain deployment prerequisites; the managed environment's configured HTTPS proxy
+is retained so network policy and injected authentication are not bypassed.
+
+Present numeric metrics must be finite, nonnegative numbers (not booleans or strings).
+Malformed supplied fields fail the sample; absent metrics remain absent with false
+capability flags. Per-guest flags distinguish missing status/network counters from
+stopped/zero. Per-storage capacity flags avoid inferring capacity for every storage
+from one available record. Backup tasks with no explicit type are not inferred to
+be vzdump; missing endtime or status means outcome unavailable, never failed.
+
+Individual successful reads have status UP: the API request succeeded, not a claim
+that every physical node or guest is running. Failed reads have status UNKNOWN.
+This collector never emits physical-node DOWN. An engine may establish DOWN only
+from separately authorized, explicit evidence and its reviewed debounce policy.
+Snapshot retains OK/DEGRADED/UNAVAILABLE as aggregate collection states; map failed
+collection states to UNKNOWN in the future engine adapter. Never map TLS, credentials,
+permissions, missing data, or API connection failure to physical-node DOWN.
+
+The tasks query explicitly requests source=all (visible active and archived tasks),
+with a fixed first-page limit of 100. There is no automatic pagination in this client.
+Even a short/empty page is not proof of full history: permissions, retention, task
+rotation and concurrent changes limit visibility. history_complete and
+backup_recency_assurance are always false; history_may_be_truncated is always true.
+The API describes PVE vzdump tasks only, not PBS health or backup-file integrity.
+The adapter must preserve per-resource errors and capabilities; snapshot calls are
+sequential, not atomic, and can take up to six configured request timeouts.
+
+Minimum privileges must be checked against the deployed PVE API schema:
+Sys.Audit on the intended /nodes scope, VM.Audit on intended /vms, and
+Datastore.Audit on intended /storage are typical audit requirements. Token privilege
+separation intersects token ACLs with the user's ACLs. Task visibility may remain
+restricted to the token's visible tasks even with audit permissions. Do not grant
+power/configuration privileges to broaden monitoring visibility.
+
+Exact primary offline command from the repository root:
+
+```bash
+python3 tests/test_proxmox_api.py
+```
+
+Full Proxmox/security suite and proposed future CI integration command:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_proxmox_*.py' -v
+```
+
+Redirect tests run urllib's actual dispatch against a synthetic HTTPS transport
+for 301/302/303/307/308, including same-origin and downgrade destinations. They
+assert exactly one authorized request and no forwarding to a second target.
+No sockets or real-device TLS handshakes are used. Production TLS, permissions,
+engine integration and real-device behavior remain **NOT TESTED**.
+
+БГ: неизвестни данни не означават нула, STOPPED или физически DOWN. Само offline
+проверки; няма разрешение за връзки към реални устройства или deployment.

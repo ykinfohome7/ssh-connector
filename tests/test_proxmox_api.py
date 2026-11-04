@@ -1,4 +1,8 @@
 """Offline Proxmox VE API tests: synthetic responses only; no sockets."""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import json
 import os
 import socket
@@ -200,6 +204,107 @@ class APITests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "UNAVAILABLE")
         self.assertEqual(result["error_code"], "UNAVAILABLE")
+
+    def test_redirect_dispatch_never_forwards_authorization(self):
+        import io
+        import email.message
+        import urllib.request
+        from monitoring.proxmox_api import NoRedirect
+        for status in (301, 302, 303, 307, 308):
+            for target in ('https://other.invalid:8006/api2/json/version',
+                           'https://example.invalid:8006/other',
+                           'http://other.invalid/stolen'):
+                seen = []
+                class Transport(urllib.request.HTTPSHandler):
+                    def https_open(self, request):
+                        seen.append((request.full_url, request.get_header('Authorization')))
+                        headers = email.message.Message()
+                        headers['Location'] = target
+                        response = urllib.response.addinfourl(io.BytesIO(b'private body'), headers, request.full_url, status)
+                        response.msg = 'redirect'
+                        return response
+                self.client._opener = urllib.request.build_opener(
+                    urllib.request.ProxyHandler({}), Transport(), NoRedirect())
+                with patch('socket.create_connection', side_effect=AssertionError('No network')):
+                    result = self.client.version()
+                self.assertFalse(result['ok'])
+                self.assertEqual(result['error_code'], 'UNAVAILABLE')
+                self.assertEqual(len(seen), 1)
+                self.assertEqual(seen[0][0], 'https://example.invalid:8006/api2/json/version')
+                self.assertTrue(seen[0][1].startswith('PVEAPIToken='))
+
+    def test_numeric_and_nested_shapes_are_not_silently_successful(self):
+        cases = [('node_status', {'cpu': 'bad'}), ('node_status', {'cpu': True}),
+                 ('node_status', {'cpu': -1}), ('node_status', {'memory': []}),
+                 ('node_status', {'memory': {'total': float('inf')}}),
+                 ('qemu', [{'vmid': 8, 'cpu': 'secret'}]),
+                 ('lxc', [{'vmid': 8, 'status': {}}]),
+                 ('storage', [{'storage': 'disk', 'total': 'bad'}]),
+                 ('backup_tasks', [{'type': 'vzdump', 'endtime': 'bad'}])]
+        for method, data in cases:
+            with self.subTest(method=method, data=data):
+                with patch.object(self.client._opener, 'open', return_value=Response(data)):
+                    result = getattr(self.client, method)('host-a')
+                self.assertEqual(result['error_code'], 'MALFORMED_RESPONSE')
+                self.assertEqual(result['status'], 'UNKNOWN')
+
+    def test_empty_lxc_and_missing_guest_status(self):
+        result, _ = self.read('lxc', [], 'host-a')
+        self.assertEqual(result['data'], [])
+        result, _ = self.read('qemu', [{'vmid': 8}], 'host-a')
+        self.assertNotIn('status', result['data'][0])
+        self.assertFalse(result['data'][0]['capabilities']['status'])
+
+    def test_backup_missing_outcome_not_failed_or_complete_history(self):
+        result, _ = self.read('backup_tasks', [{'type': 'vzdump', 'endtime': 10}], 'host-a')
+        self.assertEqual(result['data']['failures'], [])
+        self.assertFalse(result['capabilities']['history_complete'])
+        self.assertFalse(result['capabilities']['backup_recency_assurance'])
+
+    def test_credentials_reject_header_injection_and_echo(self):
+        for bad in ('abc\r\nX: bad', 'abc\tbad', 'a b', 'é'):
+            with patch.dict(os.environ, {'KSSH_PROXMOX_TOKEN_SECRET': bad}):
+                with patch.object(self.client._opener, 'open') as mocked:
+                    self.assertFalse(self.client.version()['ok'])
+                mocked.assert_not_called()
+        with patch.object(self.client._opener, 'open', return_value=Response({'version': 'test-value-not-real'})):
+            result = self.client.version()
+        self.assertNotIn('test-value-not-real', json.dumps(result))
+
+    def test_origin_controls_and_response_limit(self):
+        for origin in ('https://example.invalid:8006\n', 'https://exam\tple.invalid:8006'):
+            with self.assertRaises(ValueError):
+                ProxmoxReadOnlyClient(origin, allowed_hosts=['example.invalid'])
+        with self.assertRaises(ValueError):
+            ProxmoxReadOnlyClient('https://example.invalid:8006', allowed_hosts=['example.invalid'],
+                                  allowed_origins=['https://other.invalid:8006'])
+        client = ProxmoxReadOnlyClient('https://example.invalid:8006', allowed_hosts=['example.invalid'],
+                                      max_response_bytes=10)
+        with patch.object(client._opener, 'open', return_value=Response({'version': '8.4'})):
+            self.assertEqual(client.version()['error_code'], 'MALFORMED_RESPONSE')
+
+    def test_get_helper_cannot_request_mutation_routes(self):
+        with patch.object(self.client._opener, 'open') as mocked:
+            for path in ('nodes/host-a/qemu/100/status/start', 'access/ticket', 'nodes/host-a/config'):
+                with self.assertRaises(ValueError):
+                    self.client._get('host-a', 'qemu', path, list)
+            mocked.assert_not_called()
+
+
+    def test_custom_ca_is_passed_to_verified_context(self):
+        context = ssl.create_default_context()
+        with patch('monitoring.proxmox_api.ssl.create_default_context', return_value=context) as factory:
+            client = ProxmoxReadOnlyClient('https://example.invalid:8006',
+                allowed_hosts=['example.invalid'], ca_bundle='/operator/ca.pem')
+        factory.assert_called_once_with(cafile='/operator/ca.pem')
+        self.assertTrue(client.tls_context.check_hostname)
+        self.assertEqual(client.tls_context.verify_mode, ssl.CERT_REQUIRED)
+
+    def test_invalid_vmid_response_is_rejected(self):
+        for vmid in (True, 0, -1, 1000000000, '100', 1.5):
+            with self.subTest(vmid=vmid):
+                with patch.object(self.client._opener, 'open', return_value=Response([{'vmid': vmid}])):
+                    self.assertEqual(self.client.qemu('host-a')['error_code'], 'MALFORMED_RESPONSE')
 
 
 if __name__ == "__main__":

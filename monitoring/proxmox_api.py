@@ -2,7 +2,7 @@
 
 Standalone module; does not import or modify Claude Code's polling engine.
 Every network call uses a fixed GET endpoint, a verified TLS context, an
-explicit target allowlist, no ambient HTTP proxies, and no redirects.
+explicit target allowlist, the configured HTTPS proxy, and no redirects.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ LOG.addHandler(logging.NullHandler())
 DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 NODE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$")
 ENV = re.compile(r"^[A-Z_][A-Z0-9_]*$")
-TOKEN_ID = re.compile(r"^[^\s!@=]+@[^\s!@=]+![^\s!@=]+$")
+TOKEN_ID = re.compile(r"^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+![A-Za-z0-9_.-]+$")
 MAX_BODY = 2 * 1024 * 1024
 
 
@@ -54,7 +54,7 @@ def canonical_host(value):
 
 
 def validate_origin(url):
-    if not isinstance(url, str):
+    if not isinstance(url, str) or any(ord(c) < 33 or ord(c) == 127 for c in url):
         raise ValueError("API origin must be HTTPS")
     try:
         p = urllib.parse.urlsplit(url)
@@ -71,7 +71,7 @@ def validate_origin(url):
 
 
 def validated_node(value):
-    if not isinstance(value, str) or not NODE.fullmatch(value):
+    if not isinstance(value, str) or not NODE.fullmatch(value) or value.endswith("."):
         raise ValueError("Invalid node name")
     # No arbitrary URL paths; encoded name is a single path component.
     return urllib.parse.quote(value, safe="")
@@ -93,8 +93,12 @@ class ProxmoxReadOnlyClient:
     def __init__(self, base_url, *, allowed_hosts,
                  token_id_env="KSSH_PROXMOX_TOKEN_ID",
                  token_secret_env="KSSH_PROXMOX_TOKEN_SECRET",
-                 timeout=5.0, ca_bundle=None):
+                 timeout=5.0, ca_bundle=None, allowed_origins=None,
+                 max_response_bytes=MAX_BODY):
         self.base_url, hostname = validate_origin(base_url)
+        if allowed_origins is not None:
+            if isinstance(allowed_origins, str) or self.base_url not in {validate_origin(x)[0] for x in allowed_origins}:
+                raise ValueError("Origin is not allowlisted")
         if not allowed_hosts or isinstance(allowed_hosts, str):
             raise ValueError("An explicit list of allowed_hosts is required")
         if hostname not in {canonical_host(x) for x in allowed_hosts}:
@@ -103,27 +107,43 @@ class ProxmoxReadOnlyClient:
             raise ValueError("Credentials must be referenced by environment name")
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 0 < timeout <= 60:
             raise ValueError("Timeout must be > 0 and <= 60 seconds")
+        if type(max_response_bytes) is not int or not 1 <= max_response_bytes <= MAX_BODY:
+            raise ValueError("Invalid response limit")
+        self.max_response_bytes = max_response_bytes
         self.timeout = float(timeout)
         self.token_id_env = token_id_env
         self.token_secret_env = token_secret_env
         self.tls_context = ssl.create_default_context(cafile=ca_bundle)
-        # No proxies or HTTPRedirectHandler default; only our rejecting handler.
+        # Запазваме proxy политиката; отказваме всички redirects.
         self._opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({}),
             urllib.request.HTTPSHandler(context=self.tls_context),
             NoRedirect(),
         )
 
+    def _redact(self, value):
+        # Credential echo от сървъра не трябва да попадне в резултатите.
+        if isinstance(value, str):
+            for ref in (self.token_id_env, self.token_secret_env):
+                secret = os.environ.get(ref, "")
+                if secret:
+                    value = value.replace(secret, "<redacted>")
+            return value
+        if isinstance(value, dict):
+            return {k: self._redact(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._redact(v) for v in value]
+        return value
+
     def _result(self, node, resource, data=None, error_code=None,
                 status=None, capabilities=None):
-        state = status or ("OK" if error_code is None else "UNAVAILABLE")
+        state = status or ("UP" if error_code is None else "UNKNOWN")
         result = {
             "ok": error_code is None,
             "status": state,
             "node": node,
             "resource": resource,
             "timestamp_utc": utc_now(),
-            "data": data if error_code is None else None,
+            "data": self._redact(data) if error_code is None else None,
             "error_code": error_code,
             "source": "proxmox-ve-api",
             "capabilities": capabilities or {},
@@ -133,7 +153,7 @@ class ProxmoxReadOnlyClient:
             "event": "proxmox_api_read",
             "timestamp_utc": result["timestamp_utc"],
             "correlation_id": uuid4().hex,
-            "node": node, "resource": resource,
+            "resource": resource,
             "status": state, "error_code": error_code,
         }, separators=(",", ":")))
         return result
@@ -142,7 +162,7 @@ class ProxmoxReadOnlyClient:
         token_id = os.environ.get(self.token_id_env, "")
         secret = os.environ.get(self.token_secret_env, "")
         if (not TOKEN_ID.fullmatch(token_id) or not secret or
-                "\r" in secret or "\n" in secret):
+                not re.fullmatch(r"[A-Za-z0-9._~-]{1,512}", secret)):
             return None
         return "PVEAPIToken=" + token_id + "=" + secret
 
@@ -186,11 +206,11 @@ class ProxmoxReadOnlyClient:
                 if response.status != 200:
                     return self._result(
                         node, resource, error_code=self._http_error(response.status))
-                raw = response.read(MAX_BODY + 1)
-                if len(raw) > MAX_BODY:
+                raw = response.read(self.max_response_bytes + 1)
+                if len(raw) > self.max_response_bytes:
                     return self._result(
                         node, resource, error_code="MALFORMED_RESPONSE")
-            payload = json.loads(raw.decode("utf-8"))
+            payload = json.loads(raw.decode("utf-8"), parse_constant=lambda _: (_ for _ in ()).throw(ValueError("Invalid JSON number")))
             if (not isinstance(payload, dict) or "data" not in payload or
                     type(payload["data"]) is not expected_type):
                 raise ValueError("Malformed JSON API envelope")
@@ -207,7 +227,7 @@ class ProxmoxReadOnlyClient:
             return self._result(node, resource, error_code=code)
         except (TimeoutError, socket.timeout, ConnectionError, OSError):
             return self._result(node, resource, error_code="API_UNREACHABLE")
-        except (ValueError, TypeError, UnicodeError):
+        except (ValueError, TypeError, UnicodeError, RecursionError, OverflowError):
             return self._result(node, resource, error_code="MALFORMED_RESPONSE")
 
     def version(self):
