@@ -31,7 +31,7 @@ For an authorized future installation, grant only the Proxmox audit/view privile
 | storage(node) | /api2/json/nodes/{node}/storage | Capacity, optional 90% warning, inactive storage |
 | qemu(node) | /api2/json/nodes/{node}/qemu | Dynamically discovered QEMU status |
 | lxc(node) | /api2/json/nodes/{node}/lxc | Dynamically discovered LXC status |
-| backup_tasks(node) | /api2/json/nodes/{node}/tasks?typefilter=vzdump&limit=100 | Visible Proxmox VE vzdump task outcomes |
+| backup_tasks(node) | /api2/json/nodes/{node}/tasks?typefilter=vzdump&limit=100&source=all | Visible Proxmox VE vzdump task outcomes |
 | snapshot(node) | Six fixed GET calls above | Aggregated adapter output |
 
 Optional netin/netout are emitted only when the official API response includes numeric values. Missing values are omitted; do not invent zeroes. Empty QEMU/LXC lists are valid only after a successful API response.
