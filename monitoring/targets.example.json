@@ -3,6 +3,7 @@
   "failure_threshold": 3,
   "recovery_threshold": 2,
   "max_concurrency": 4,
+  "target_deadline_seconds": 60,
   "allowed_networks": [
     "192.168.30.10/32",
     "192.168.0.100/32",
@@ -26,6 +27,17 @@
         "port": 161,
         "timeout": 2.0,
         "retries": 1
+      },
+      "interfaces": {
+        "include": [
+          "*"
+        ],
+        "exclude": [],
+        "error_rate_per_s": 1.0,
+        "util_warn_pct": 90,
+        "flap_threshold": 3,
+        "flap_window_s": 600,
+        "max_interfaces": 64
       }
     },
     {

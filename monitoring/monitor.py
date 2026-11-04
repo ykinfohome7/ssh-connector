@@ -13,8 +13,10 @@ import asyncio
 import json
 import logging
 import os
+import signal
 import socket
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -24,11 +26,20 @@ if __package__ in (None, ""):  # executed as a script: make the package importab
     __package__ = "monitoring"
 
 from .errors import CheckStatus, ErrorCode, MonitorError, status_for  # noqa: E402
+from .interface_monitor import evaluate, interface_config, sample_from_dict, sample_to_dict  # noqa: E402
 from .logutil import get_logger, log_event, new_correlation_id  # noqa: E402
+from .notifier import WEBHOOK_OPENER, Notifier, _NoRedirect, validate_webhook_url  # noqa: E402,F401
 from .snmp_adapters import make_adapter  # noqa: E402
 from .snmp_client import Allowlist, SnmpClient, SnmpCredentials, SnmpLimits, SnmpTarget  # noqa: E402
+from .snmp_interfaces import collect_sample, compute_rates  # noqa: E402
+from .state_store import StateLocked, StateStore, empty_state, migrate, write_private_atomic  # noqa: E402
 
 LOG = get_logger()
+_WEBHOOK_OPENER = WEBHOOK_OPENER  # backwards-compatible name
+
+
+def utc_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 # --------------------------------------------------------------------------- config
@@ -46,13 +57,15 @@ def load_config(path: Path) -> dict:
     targets = config.get("targets")
     if not isinstance(targets, list) or not targets:
         raise ValueError("targets must be a nonempty list")
+    if len(targets) > 256:
+        raise ValueError("at most 256 targets")
     names = set()
     for target in targets:
         if not isinstance(target, dict):
             raise ValueError("each target must be an object")
         name = target.get("name", "")
-        if not name or name in names:
-            raise ValueError("each target needs a distinct name")
+        if not isinstance(name, str) or not name or name in names or len(name) > 64 or "/" in name:
+            raise ValueError("each target needs a distinct name (1..64 chars, no '/')")
         names.add(name)
         host = target.get("host")
         if not host:
@@ -74,10 +87,17 @@ def load_config(path: Path) -> dict:
                 raise ValueError(f"target {name}: {exc.message}") from None
         elif not has_tcp:
             raise ValueError(f"target {name}: needs tcp_port and/or snmp")
+        try:
+            target["_interfaces"] = interface_config(target.get("interfaces"))
+        except ValueError as exc:
+            raise ValueError(f"target {name}: {exc}") from None
+        if target["_interfaces"] and not target.get("snmp"):
+            raise ValueError(f"target {name}: interfaces monitoring requires snmp")
     config["interval_seconds"] = max(15, int(config.get("interval_seconds", 60)))
     config["failure_threshold"] = max(1, int(config.get("failure_threshold", 3)))
     config["recovery_threshold"] = max(1, int(config.get("recovery_threshold", 2)))
     config["max_concurrency"] = max(1, min(16, int(config.get("max_concurrency", 4))))
+    config["target_deadline_seconds"] = max(5, min(300, int(config.get("target_deadline_seconds", 60))))
     config["_allowlist"] = allowlist
     return config
 
@@ -103,6 +123,14 @@ def _result(code: ErrorCode | None, detail: str = "", **data) -> dict:
     return out
 
 
+def make_client(host: str, cfg: dict, allowlist: Allowlist | None, backend=None) -> SnmpClient:
+    creds = SnmpCredentials.from_config(cfg)
+    target = SnmpTarget(host, int(cfg.get("port", 161)),
+                        float(cfg.get("timeout", 2.0)), int(cfg.get("retries", 1)))
+    return SnmpClient(target, creds, allowlist or Allowlist([host]),
+                      limits=SnmpLimits(max_concurrency=1), backend=backend)
+
+
 async def snmp_probe(host: str, cfg: dict, allowlist: Allowlist | None = None, *, backend=None) -> dict:
     """Authenticated SNMP GET of sysUpTime.0 / sysName.0 - never SNMP SET.
 
@@ -111,11 +139,7 @@ async def snmp_probe(host: str, cfg: dict, allowlist: Allowlist | None = None, *
     UNKNOWN, which never raises a DOWN alert for the device.
     """
     try:
-        creds = SnmpCredentials.from_config(cfg)
-        target = SnmpTarget(host, int(cfg.get("port", 161)),
-                            float(cfg.get("timeout", 2.0)), int(cfg.get("retries", 1)))
-        client = SnmpClient(target, creds, allowlist or Allowlist([host]),
-                            limits=SnmpLimits(max_concurrency=1), backend=backend)
+        client = make_client(host, cfg, allowlist, backend)
         health = await make_adapter(cfg.get("adapter", "generic"), client).health()
         return _result(None, uptime_ticks=health["sys_uptime_ticks"], sys_name=health["sys_name"])
     except MonitorError as exc:
@@ -129,12 +153,12 @@ async def snmp_probe(host: str, cfg: dict, allowlist: Allowlist | None = None, *
 # --------------------------------------------------------------------------- state
 
 
-def update_state(state: dict, key: str, ok: bool | None, bad_after: int, good_after: int) -> str | None:
-    """Debounced transition. ``ok=None`` (UNKNOWN) leaves the state untouched.
+def update_state(checks: dict, key: str, ok: bool | None, bad_after: int, good_after: int) -> str | None:
+    """Debounced transition on one check. ``ok=None`` (UNKNOWN) changes nothing.
 
     Returns "DOWN", "RECOVERED" or None.
     """
-    entry = state.setdefault(key, {"healthy": True, "pending": 0})
+    entry = checks.setdefault(key, {"healthy": True, "pending": 0})
     entry.pop("seen", None)  # legacy field from the first MVP
     entry.setdefault("pending", 0)
     entry.setdefault("healthy", True)
@@ -149,50 +173,35 @@ def update_state(state: dict, key: str, ok: bool | None, bad_after: int, good_af
         return None
     entry["healthy"] = ok
     entry["pending"] = 0
+    entry["since_utc"] = utc_now()
     return "RECOVERED" if ok else "DOWN"
 
 
 def save_state(path: Path, state: dict) -> None:
-    """Atomic, private (0600), fsync'ed state write."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as file:
-        json.dump(state, file, sort_keys=True)
-        file.flush()
-        os.fsync(file.fileno())
-    os.replace(tmp, path)
-    try:
-        dir_fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
-    except OSError:
-        pass  # not supported on every platform/filesystem
+    """Atomic, private (0600), fsync'ed state write (kept for compatibility)."""
+    write_private_atomic(Path(path), state)
 
 
-# --------------------------------------------------------------------------- notify
+def _ensure_v2(state: dict) -> dict:
+    if state.get("schema") != 2:
+        migrated = migrate(state) if state else empty_state()
+        state.clear()
+        state.update(migrated)
+    return state
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Refuse all redirects so an HTTPS webhook can never be downgraded."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-_WEBHOOK_OPENER = urllib.request.build_opener(_NoRedirect)
+# --------------------------------------------------------------------------- notify (legacy helper)
 
 
 def notify(message: str) -> None:
-    """Optional HTTPS webhook; no public listener, never print URL/token."""
+    """Print a message and POST it to KSSH_MONITOR_WEBHOOK (HTTPS, no redirects)."""
     print(message, flush=True)
     url = os.environ.get("KSSH_MONITOR_WEBHOOK")
     if not url:
         return
-    if not url.startswith("https://"):
-        print("Webhook skipped: HTTPS required", flush=True)
+    reason = validate_webhook_url(url)
+    if reason:
+        print(f"Webhook skipped: {reason}", flush=True)
         return
     try:
         request = urllib.request.Request(
@@ -208,71 +217,151 @@ def notify(message: str) -> None:
 # --------------------------------------------------------------------------- poll
 
 
-async def _check_target(target: dict, allowlist: Allowlist, sem: asyncio.Semaphore, backend_factory) -> dict:
+async def _run_checks(target: dict, allowlist: Allowlist, backend_factory, prev_sample, clock) -> dict:
+    name, host = target["name"], target["host"]
+    record: dict = {"name": name, "checks": {}}
+    if "tcp_port" in target:
+        ok = await asyncio.to_thread(tcp_probe, host, int(target["tcp_port"]))
+        record["tcp_ok"] = ok
+        record["checks"]["tcp"] = _result(None if ok else ErrorCode.UNREACHABLE)
+    if target.get("snmp"):
+        backend = backend_factory(target) if backend_factory else None
+        snmp = await snmp_probe(host, target["snmp"], allowlist, backend=backend)
+        record["snmp_ok"] = snmp["ok"]
+        record["snmp"] = snmp
+        record["checks"]["snmp"] = snmp
+        if target.get("_interfaces") and snmp["ok"]:
+            try:
+                client = make_client(host, target["snmp"], allowlist, backend)
+                sample = await collect_sample(client, clock(), max_interfaces=target["_interfaces"]["max_interfaces"] * 4)
+                record["_sample"] = sample
+                record["_rates"] = compute_rates(prev_sample, sample)
+            except MonitorError as exc:
+                record["interfaces_error"] = exc.code.value
+    return record
+
+
+async def _check_target(target, allowlist, sem, backend_factory, prev_sample, deadline, clock) -> dict:
     async with sem:
-        name, host = target["name"], target["host"]
-        record: dict = {"name": name, "checks": {}}
-        if "tcp_port" in target:
-            ok = await asyncio.to_thread(tcp_probe, host, int(target["tcp_port"]))
-            record["tcp_ok"] = ok
-            record["checks"]["tcp"] = _result(None if ok else ErrorCode.UNREACHABLE)
-        if target.get("snmp"):
-            backend = backend_factory(target) if backend_factory else None
-            snmp = await snmp_probe(host, target["snmp"], allowlist, backend=backend)
-            record["snmp_ok"] = snmp["ok"]
-            record["snmp"] = snmp
-            record["checks"]["snmp"] = snmp
-        return record
+        try:
+            return await asyncio.wait_for(
+                _run_checks(target, allowlist, backend_factory, prev_sample, clock), timeout=deadline)
+        except asyncio.TimeoutError:
+            planned = (["tcp"] if "tcp_port" in target else []) + (["snmp"] if target.get("snmp") else [])
+            return {"name": target["name"], "deadline_exceeded": True,
+                    "checks": {c: _result(ErrorCode.DEADLINE_EXCEEDED, f"no result within {deadline}s")
+                               for c in planned}}
 
 
-async def poll(config: dict, state: dict, *, backend_factory=None) -> list[dict]:
-    """Check all targets concurrently (bounded), then apply state transitions in order."""
+async def poll(config: dict, state: dict, *, backend_factory=None, notifier: Notifier | None = None,
+               clock=time.time) -> list[dict]:
+    """Check all targets concurrently (bounded), then apply state transitions in order.
+
+    ``state`` is the v2 state dict (an empty dict is accepted and initialised).
+    """
+    _ensure_v2(state)
     allowlist = config.get("_allowlist") or Allowlist(config.get("allowed_networks") or [])
     sem = asyncio.Semaphore(config.get("max_concurrency", 4))
+    deadline = config.get("target_deadline_seconds", 60)
     cid = new_correlation_id()
+    prev = {t["name"]: sample_from_dict(state["samples"].get(t["name"])) if state["samples"].get(t["name"]) else None
+            for t in config["targets"]}
     records = await asyncio.gather(*(
-        _check_target(t, allowlist, sem, backend_factory) for t in config["targets"]
+        _check_target(t, allowlist, sem, backend_factory, prev[t["name"]], deadline, clock)
+        for t in config["targets"]
     ))
+    if notifier is None:
+        notifier = Notifier.from_env(printer=lambda m: notify_print(m))
+    by_name = {t["name"]: t for t in config["targets"]}
     for record in records:
+        name = record["name"]
+        sample = record.pop("_sample", None)
+        rates = record.pop("_rates", None)
+        if sample is not None:
+            state["samples"][name] = sample_to_dict(sample)
+            if_checks, if_events = evaluate(rates, by_name[name]["_interfaces"], state["flaps"], name, clock())
+            record["checks"].update(if_checks)
+            record["interface_events"] = if_events
+            record["interfaces"] = rates["interfaces"]
+            for ev in if_events:
+                log_event(LOG, logging.INFO, "interface event", target=name, correlation_id=cid, **ev)
+        if record.get("deadline_exceeded"):
+            log_event(LOG, logging.ERROR, "target deadline exceeded", target=name, correlation_id=cid)
+        if record.get("interfaces_error"):
+            log_event(LOG, logging.WARNING, "interface collection failed", target=name,
+                      error_code=record["interfaces_error"], correlation_id=cid)
         for check, res in record["checks"].items():
-            key = f"{record['name']}/{check}"
+            key = f"{name}/{check}"
             status = res["status"]
             ok = None if status == CheckStatus.UNKNOWN.value else status == CheckStatus.UP.value
-            if ok is None:
+            if ok is None and check in ("tcp", "snmp"):
                 log_event(LOG, logging.WARNING, "check could not be evaluated",
                           check=key, error_code=res.get("error_code"), correlation_id=cid)
-            event = update_state(state, key, ok, config["failure_threshold"], config["recovery_threshold"])
+            event = update_state(state["checks"], key, ok, config["failure_threshold"], config["recovery_threshold"])
             if event:
                 log_event(LOG, logging.ERROR if event == "DOWN" else logging.INFO, "state transition",
                           check=key, event=event, error_code=res.get("error_code"), correlation_id=cid)
-                notify(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} KSSH monitor {event}: {key}"
-                       + (f" ({res['error_code']})" if res.get("error_code") else ""))
+                notifier.send({"ts_utc": utc_now(), "check": key, "event": event,
+                               "error_code": res.get("error_code"), "status": status})
+    # forget samples of targets removed from the config
+    for stale in set(state["samples"]) - set(by_name):
+        del state["samples"][stale]
     return list(records)
 
 
-def main() -> None:
+def notify_print(message: str) -> None:
+    print(message, flush=True)
+
+
+# --------------------------------------------------------------------------- main
+
+
+def run(config: dict, store: StateStore, *, once: bool, stop: threading.Event) -> int:
+    state = store.load()
+    if store.recovered_from:
+        log_event(LOG, logging.ERROR, "state file was unreadable; moved aside and started fresh",
+                  moved_to=store.recovered_from)
+    notifier = Notifier.from_env(printer=notify_print)
+    while not stop.is_set():
+        try:
+            result = asyncio.run(poll(config, state, notifier=notifier))
+        except KeyboardInterrupt:  # asyncio.run turns SIGINT into this; keep the last good state
+            break
+        print(json.dumps({"time_utc": utc_now(), "targets": result}, sort_keys=True, default=str), flush=True)
+        try:
+            store.save(state)
+        except OSError as exc:
+            log_event(LOG, logging.ERROR, "state save failed", exc_type=type(exc).__name__)
+        if once:
+            break
+        stop.wait(config["interval_seconds"])
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Read-only infrastructure monitor")
     parser.add_argument("--config", default=str(Path(__file__).with_name("targets.example.json")))
     parser.add_argument("--state", default=str(Path.home() / ".local/state/kssh-monitor.json"))
     parser.add_argument("--once", action="store_true")
-    args = parser.parse_args()
-    config = load_config(Path(args.config))
-    state_path = Path(args.state)
+    args = parser.parse_args(argv)
     try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        state = {}
-    while True:
-        result = asyncio.run(poll(config, state))
-        print(json.dumps({"time": int(time.time()), "targets": result}, sort_keys=True), flush=True)
+        config = load_config(Path(args.config))
+    except (OSError, ValueError) as exc:
+        log_event(LOG, logging.ERROR, "invalid configuration", detail=str(exc))
+        return 2
+    stop = threading.Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
         try:
-            save_state(state_path, state)
-        except OSError as exc:
-            log_event(LOG, logging.ERROR, "state save failed", exc_type=type(exc).__name__)
-        if args.once:
-            break
-        time.sleep(config["interval_seconds"])
+            signal.signal(sig, lambda *_: stop.set())
+        except (ValueError, OSError):
+            pass  # not in main thread / unsupported platform
+    try:
+        with StateStore(Path(args.state)) as store:
+            return run(config, store, once=args.once, stop=stop)
+    except StateLocked as exc:
+        log_event(LOG, logging.ERROR, str(exc))
+        return 3
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
