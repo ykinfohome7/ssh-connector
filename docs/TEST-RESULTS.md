@@ -2,6 +2,31 @@
 
 Local ≠ CI. Each entry states where it ran. Nothing below was run against a real device.
 
+## Run L4 — plugin 1.4.0 + Tailscale endpoint (CLAUDE_CODE)
+
+| Field | Value |
+|---|---|
+| Time (UTC) | 2026-11-04T22:15Z |
+| Command A (local, stdlib) | `python3 -W error::ResourceWarning -m unittest tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py tests/test_plugin_snmp.py tests/test_tailscale_endpoint.py` |
+| Result A | **Ran 141 — OK (skipped=1)**; `tests/test_tailscale_endpoint.py` alone: 28 OK |
+| Command B (local, asyncssh stub + mcp 2.x shim, not committed) | `tests/test_v13_session_tailscale_mock.py`, `test_sudo_password_mock.py`, `test_v13_mock.py`, `test_codespaces.py`, `test_profiles.py`, `test_plugins.py` |
+| Result B | all PASSED; `plugin tests PASSED (version 1.4.0, commands 56)` |
+| **CI** (real `mcp<2`, `asyncssh`), SHA `371d643` | [run 41922900652](https://github.com/ykinfohome7/ssh-connector/actions/runs/41922900652/job/126899678499) — **success**. The step `python tests/test_plugins.py` now also runs the isolated installed-plugin test |
+
+Isolated installed-plugin test (`tests/test_installed_plugin.py`): only `plugins/ssh-connector` copied to a temporary plugin cache; real launcher `sh bin/run.sh` (venv pre-seeded, no pip); cwd outside the repo; no `PYTHONPATH` (harness run with `python -I`). Measured locally:
+
+```
+launcher:     tools 56 (unique), snmp_health without pysnmp -> UNKNOWN / DEPENDENCY_MISSING,
+              tailscale calls only after tailscale_status: status --json, serve status --json, version
+              exposure: serve (tailnet only), reachability not verified
+fake backend: tools 56, snmp_health UP, snmp_get UP, snmp_walk UP, raw IP refused (CONFIG_ERROR),
+              backend created only after the first call_tool
+```
+
+Tailscale scenarios (mock CLI/HTTP), all passing: not installed; daemon not running; NeedsLogin / NeedsMachineAuth; stopped; valid DNSName; missing DNSName (never taken from HostName); invalid DNSName; invalid JSON (status and serve); timeout (status, serve, HTTP probe); Serve without Funnel; Funnel configured but not verified; nothing configured; configured address without check (no network call); health check failing (0/404/502), OK (401), unprotected (200); address from file / unreadable file; non-HTTPS rejected; configured vs Tailscale mismatch; stdio vs HTTP templates; token-bearing URL reduced to host; user-info removed; redaction of token, secret path, bearer, `tskey-…`; only read-only CLI commands; no `serve` call when not running.
+
+Not executed: real Tailscale, Serve, Funnel or HTTP backend; Codex CLI plugin update; Claude Code `plugin update` against the real marketplace (`claude plugin validate` passed for the plugin and the marketplace manifest).
+
 ## Run L3 — local, CLAUDE_CODE (SNMP MCP tools)
 
 | Field | Value |

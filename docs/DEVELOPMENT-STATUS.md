@@ -1,6 +1,6 @@
 # Development status — read-only monitoring
 
-Updated: 2026-11-04 ~21:45 UTC by CLAUDE_CODE. Connector version: 1.3.3; MCP tools: **56** (48 + 8 read-only SNMP) on this branch, approved by the owner on 2026-11-04.
+Updated: 2026-11-04 ~21:45 UTC by CLAUDE_CODE. Updated again ~22:15 UTC. Connector version on this branch: **1.4.0** (not released); MCP tools: **56** (48 + 8 read-only SNMP), approved by the owner on 2026-11-04.
 
 | Area | State | Owner | Notes |
 |---|---|---|---|
@@ -17,6 +17,8 @@ Updated: 2026-11-04 ~21:45 UTC by CLAUDE_CODE. Connector version: 1.3.3; MCP too
 | CI for monitoring tests | **BLOCKED** | owner | workflow edit refused (403); patch in `docs/CI-MONITORING-STEP.md` |
 | Proxmox VE read-only API | in progress on `codex/proxmox-readonly-api` | CODEX (Issue #13) | not touched by CLAUDE_CODE |
 | MCP tools for SNMP (8) | implemented, offline-tested | CLAUDE_CODE | `snmp_health`, `snmp_device_info`, `snmp_get`, `snmp_getnext`, `snmp_getbulk`, `snmp_walk`, `snmp_interfaces`, `snmp_interface_stats`; see `docs/SNMP.md` |
+| Installed plugin (Claude Code / Codex) | 1.4.0, isolated install test in CI | CLAUDE_CODE | `tests/test_installed_plugin.py` via `tests/test_plugins.py`; update steps in `docs/PLUGIN-AND-ENDPOINT.md` |
+| Connector address report (`tailscale_status`) | implemented, mock-tested | CLAUDE_CODE | stdio / HTTP, Serve / Funnel / unknown, verified or not; no real Tailscale contacted |
 | RDP / Windows checks | not started | — | |
 | Deployment / systemd | not started | — | requires explicit approval |
 

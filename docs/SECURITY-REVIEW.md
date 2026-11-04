@@ -46,6 +46,18 @@
 | R3-4 | LOW | No audit of SNMP calls | MITIGATED | each call appended to `history` as `snmp:<tool> <args>` with exit_code 0/1 |
 | R3-5 | LOW | Pre-existing: `docs/COMMANDS*.md` on `main` differ from `scripts/gen_commands_docs.py` output | OPEN (not introduced here) | left unchanged to keep hand-written notes; SNMP documented in `docs/SNMP.md` |
 
+## Round 4 — plugin packaging and connector address (Tailscale)
+
+| ID | Severity | Finding | Status | Fix / evidence |
+|---|---|---|---|---|
+| R4-1 | HIGH | HTTP backend: uvicorn's access log printed the secret-path URL `/<token>/mcp` in full (stdout/log files) | FIXED (`d430dea`) | `uvicorn.run(..., access_log=False)`; the existing auth log already replaced the token |
+| R4-2 | MEDIUM | `tailscale_status` derived "Funnel on" from a text match, could not tell Serve (tailnet only) from Funnel (public), and gave no hint whether the address was checked | FIXED (`d430dea`) | `endpoint` report: transport, configured host only, `serve`/`funnel`/`none`/`unknown`, `public_internet` never "yes" from config alone, reachability only with `verify_reachability=true` (expects 401, checked from the connector host, `proves_internet_access: false`) |
+| R4-3 | LOW | `_ts_cli` left the `tailscale` child process running after a timeout | FIXED | process killed and reaped |
+| R4-4 | LOW | Tailscale error texts could echo a token or key | MITIGATED | `endpoint_info.redact`: connector token, `/<secret>/mcp`, bearer values, `tskey-…` |
+| R4-5 | INFO | Installed plugin was only checked by importing `server.py` | FIXED | `tests/test_installed_plugin.py` (real launcher, MCP stdio, isolated copy) runs inside `tests/test_plugins.py` in CI |
+
+Not changed: `tailscale_devices` error text is not redacted (pre-existing; it contains only `tailscale status` output).
+
 ## Controls in place
 
 * Mandatory allowlist (`allowed_networks`) at config load and in `SnmpClient`; alternate IP spellings do not bypass it (tested).
