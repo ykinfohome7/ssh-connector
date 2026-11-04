@@ -1,0 +1,26 @@
+# Separate, offline-only tests for Issue #13.
+# Does not modify the shared CI workflow owned by PR #12.
+name: proxmox-api-offline
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "monitoring/proxmox_*.py"
+      - "tests/test_proxmox_*.py"
+      - ".github/workflows/proxmox-api-offline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run mocked Proxmox API tests (no production connectivity)
+        run: python3 -m unittest discover -s tests -p 'test_proxmox_*.py' -v
