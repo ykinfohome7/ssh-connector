@@ -69,9 +69,21 @@ class MonitorTests(unittest.TestCase):
 
     def test_http_webhook_rejected(self):
         with patch.dict(os.environ, {"KSSH_MONITOR_WEBHOOK": "http://example.invalid"}):
-            with patch.object(monitor.urllib.request, "urlopen") as opener:
+            with patch.object(monitor._WEBHOOK_OPENER, "open") as opener:
                 monitor.notify("test status")
                 opener.assert_not_called()
+
+    def test_webhook_redirect_is_refused(self):
+        req = monitor.urllib.request.Request("https://example.invalid/hook")
+        handler = monitor._NoRedirect()
+        self.assertIsNone(handler.redirect_request(
+            req, None, 302, "Found", {}, "http://example.invalid/"))
+
+    def test_https_webhook_uses_no_redirect_opener(self):
+        with patch.dict(os.environ, {"KSSH_MONITOR_WEBHOOK": "https://example.invalid/hook"}):
+            with patch.object(monitor._WEBHOOK_OPENER, "open") as opener:
+                monitor.notify("test status")
+                opener.assert_called_once()
 
 
 if __name__ == "__main__":

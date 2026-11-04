@@ -136,6 +136,16 @@ def save_state(path: Path, state: dict) -> None:
     os.replace(tmp, path)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse all redirects so an HTTPS webhook can never be downgraded."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_WEBHOOK_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def notify(message: str) -> None:
     """Optional HTTPS webhook; no public listener, never print URL/token."""
     print(message, flush=True)
@@ -150,7 +160,7 @@ def notify(message: str) -> None:
             url, data=json.dumps({"text": message}).encode("utf-8"),
             headers={"Content-Type": "application/json"}, method="POST",
         )
-        with urllib.request.urlopen(request, timeout=5) as response:
+        with _WEBHOOK_OPENER.open(request, timeout=5) as response:
             response.read(256)
     except Exception:
         print("Webhook delivery failed (details hidden)", flush=True)
