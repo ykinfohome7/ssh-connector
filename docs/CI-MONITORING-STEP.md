@@ -19,7 +19,7 @@ Status 2026-11-05: the owner authorized this change, but the push was refused ag
 +        id: monitoring
 +        # Fake in-memory SNMP agent and fake local RDP listener only; pysnmp is NOT installed here,
 +        # so the real PySNMP backend is not exercised by this step.
-+        run: python -m unittest -v tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py tests/test_plugin_snmp.py tests/test_tailscale_endpoint.py tests/test_rdp_tools.py
++        run: python -m unittest -v tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py tests/test_plugin_snmp.py tests/test_tailscale_endpoint.py tests/test_rdp_tools.py tests/test_snippet_library.py
 +      - name: Check Claude Code and Codex plugins (v1.4.1, 60 tools, isolated install)
          id: plugins
          run: python tests/test_plugins.py
