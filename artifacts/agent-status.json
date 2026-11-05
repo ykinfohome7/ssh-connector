@@ -1,11 +1,11 @@
 {
   "schema": "kssh-agent-status/1",
-  "updated_utc": "2026-11-05T05:35:00Z",
+  "updated_utc": "2026-11-05T06:35:00Z",
   "agents": [
     {
       "agent_id": "CLAUDE_CODE",
-      "task_id": "rdp-windows-tools",
-      "run_id": "claude-20261105-06",
+      "task_id": "kssh-1.4.1",
+      "run_id": "claude-20261105-07",
       "branch": "claude/monitor-hardening-snmp",
       "issues": [
         11,
@@ -16,7 +16,7 @@
         14
       ],
       "state": "in_review",
-      "current_task": "4 read-only RDP / Windows MCP tools (60 total)",
+      "current_task": "KSSH 1.4.1: version, tests, M6, deployment (not possible from sandbox)",
       "results": {
         "local_tests": {
           "command": "python3 -W error::ResourceWarning -m unittest tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py tests/test_plugin_snmp.py tests/test_tailscale_endpoint.py tests/test_rdp_tools.py",
@@ -56,7 +56,7 @@
           "verified_in_ci": "pending"
         },
         "plugin": {
-          "version": "1.4.0",
+          "version": "1.4.1",
           "installed_plugin_test": "tests/test_installed_plugin.py (via tests/test_plugins.py)",
           "tools_measured": 60,
           "duplicates": 0
@@ -68,6 +68,10 @@
         "rdp": {
           "tests": 22,
           "real_windows_contacted": false
+        },
+        "deployment": {
+          "status": "NOT_DEPLOYED",
+          "reason": "no SSH client, DNS/route or credentials to the KSSH server in the development sandbox"
         }
       },
       "blocked": [
@@ -79,7 +83,7 @@
         {
           "item": "CI step for monitoring tests (.github/workflows/test.yml)",
           "status": "BLOCKED",
-          "reason": "GitHub API 403 for workflow files; patch in docs/CI-MONITORING-STEP.md"
+          "reason": "GitHub API 403 for workflow files (retried 2026-11-05 with owner authorization); patch in docs/CI-MONITORING-STEP.md"
         },
         {
           "item": "Real HD / pve1 / pve2 tests",
@@ -132,6 +136,10 @@
         {
           "utc": "2026-11-05T05:35Z",
           "action": "RDP / Windows tools (owner request)"
+        },
+        {
+          "utc": "2026-11-05T06:35Z",
+          "action": "version 1.4.1; M6 403; not deployed"
         }
       ]
     },

@@ -14,7 +14,7 @@
 | How it gets new code | **plugin update** (below) | **redeploy/restart the backend**, then **Refresh** |
 | What *Refresh* does | n/a | only re-reads the tool list from the backend; it does not update code |
 
-### 2. Updating the plugin (version 1.4.0, 60 tools)
+### 2. Updating the plugin (version 1.4.1, 60 tools)
 
 Claude Code:
 
@@ -23,7 +23,7 @@ claude plugin marketplace update ykinfohome7-tools
 claude plugin update ssh-connector@ykinfohome7-tools
 ```
 
-Then restart the Claude Code session. Check with the `version_info` tool: `version` must be `1.4.0`, `commands` must list 60 names including `snmp_health` … `snmp_interface_stats` and `rdp_check`, `rdp_tunnel`, `windows_health`, `rdp_sessions`.
+Then restart the Claude Code session. Check with the `version_info` tool: `version` must be `1.4.1`, `commands` must list 60 names including `snmp_health` … `snmp_interface_stats` and `rdp_check`, `rdp_tunnel`, `windows_health`, `rdp_sessions`.
 
 Before PR #14 is merged, the marketplace on `main` still serves 1.3.3. To try this branch, use a local checkout:
 
@@ -35,7 +35,7 @@ claude plugin install ssh-connector@ykinfohome7-tools
 
 Codex: update the `ykinfohome7-tools` marketplace (re-run `codex plugin marketplace add ykinfohome7/ssh-connector`), enable/upgrade **ssh-connector** in the plugin list and restart Codex. *The Codex CLI was not available in the development environment, so these Codex steps were not executed.*
 
-Dependencies: `requirements.txt` did not change in 1.4.0, so the launcher reuses the existing private virtualenv. The SNMP backend (`pysnmp`) is **optional and not installed**: without it the `snmp_*` tools answer `UNKNOWN / DEPENDENCY_MISSING` and every other tool keeps working. Installing `pysnmp` into the plugin virtualenv is possible but **untested** (see `docs/SNMP.md`).
+Dependencies: `requirements.txt` did not change in 1.4.1, so the launcher reuses the existing private virtualenv. The SNMP backend (`pysnmp`) is **optional and not installed**: without it the `snmp_*` tools answer `UNKNOWN / DEPENDENCY_MISSING` and every other tool keeps working. Installing `pysnmp` into the plugin virtualenv is possible but **untested** (see `docs/SNMP.md`).
 
 ### 3. Updating a remote connector (ChatGPT / Claude apps)
 
@@ -71,7 +71,7 @@ Secrets: the token is never shown. Token-bearing URLs (`/<TOKEN>/mcp`), bearer v
 | Как получава нов код | **обновяване на плъгина** (по-долу) | **обновяване/рестарт на сървъра**, после **Refresh** |
 | Какво прави *Refresh* | — | само зарежда наново списъка с команди; кода не го обновява |
 
-### 2. Обновяване на плъгина (версия 1.4.0, 60 команди)
+### 2. Обновяване на плъгина (версия 1.4.1, 60 команди)
 
 Claude Code:
 
@@ -80,7 +80,7 @@ claude plugin marketplace update ykinfohome7-tools
 claude plugin update ssh-connector@ykinfohome7-tools
 ```
 
-После рестартирай сесията на Claude Code. Провери с `version_info`: версия `1.4.0` и 60 команди, включително `snmp_health` … `snmp_interface_stats` и четирите `rdp_*` / `windows_health`.
+После рестартирай сесията на Claude Code. Провери с `version_info`: версия `1.4.1` и 60 команди, включително `snmp_health` … `snmp_interface_stats` и четирите `rdp_*` / `windows_health`.
 
 Докато PR #14 не е слят, `main` дава 1.3.3. За проба на този клон използвай локално копие (командите са в английската част горе).
 
