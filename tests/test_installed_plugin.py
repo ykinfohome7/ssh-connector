@@ -17,6 +17,7 @@ Requires the plugin's own dependencies (mcp<2, asyncssh, PyYAML) in the running 
 import asyncio
 import json
 import os
+import shlex
 import shutil
 import stat
 import sys
@@ -131,7 +132,12 @@ async def main():
         assert not (installed / ".." / ".." / ".." / "monitoring").exists()
         data = d / "plugin-data"
         (data / "venv" / "bin").mkdir(parents=True)
-        os.symlink(sys.executable, data / "venv" / "bin" / "python")            # pre-seeded "venv": no pip
+        # Pre-seeded "venv" (no pip). A wrapper, not a symlink: a symlink to a venv interpreter does not
+        # activate that venv (Python looks for pyvenv.cfg next to the path it was started from), so the
+        # child would fall back to the system Python without the venv's packages.
+        seeded = data / "venv" / "bin" / "python"
+        seeded.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} \"$@\"\n")
+        seeded.chmod(0o755)
         shutil.copy(installed / "requirements.txt", data / "requirements.installed")
         home = d / "home"
         (home / ".ssh-connector").mkdir(parents=True)
