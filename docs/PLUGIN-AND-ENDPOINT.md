@@ -14,7 +14,7 @@
 | How it gets new code | **plugin update** (below) | **redeploy/restart the backend**, then **Refresh** |
 | What *Refresh* does | n/a | only re-reads the tool list from the backend; it does not update code |
 
-### 2. Updating the plugin (version 1.4.0, 56 tools)
+### 2. Updating the plugin (version 1.4.0, 60 tools)
 
 Claude Code:
 
@@ -23,7 +23,7 @@ claude plugin marketplace update ykinfohome7-tools
 claude plugin update ssh-connector@ykinfohome7-tools
 ```
 
-Then restart the Claude Code session. Check with the `version_info` tool: `version` must be `1.4.0`, `commands` must list 56 names including `snmp_health` … `snmp_interface_stats`.
+Then restart the Claude Code session. Check with the `version_info` tool: `version` must be `1.4.0`, `commands` must list 60 names including `snmp_health` … `snmp_interface_stats` and `rdp_check`, `rdp_tunnel`, `windows_health`, `rdp_sessions`.
 
 Before PR #14 is merged, the marketplace on `main` still serves 1.3.3. To try this branch, use a local checkout:
 
@@ -71,7 +71,7 @@ Secrets: the token is never shown. Token-bearing URLs (`/<TOKEN>/mcp`), bearer v
 | Как получава нов код | **обновяване на плъгина** (по-долу) | **обновяване/рестарт на сървъра**, после **Refresh** |
 | Какво прави *Refresh* | — | само зарежда наново списъка с команди; кода не го обновява |
 
-### 2. Обновяване на плъгина (версия 1.4.0, 56 команди)
+### 2. Обновяване на плъгина (версия 1.4.0, 60 команди)
 
 Claude Code:
 
@@ -80,7 +80,7 @@ claude plugin marketplace update ykinfohome7-tools
 claude plugin update ssh-connector@ykinfohome7-tools
 ```
 
-После рестартирай сесията на Claude Code. Провери с `version_info`: версия `1.4.0` и 56 команди, включително `snmp_health` … `snmp_interface_stats`.
+После рестартирай сесията на Claude Code. Провери с `version_info`: версия `1.4.0` и 60 команди, включително `snmp_health` … `snmp_interface_stats` и четирите `rdp_*` / `windows_health`.
 
 Докато PR #14 не е слят, `main` дава 1.3.3. За проба на този клон използвай локално копие (командите са в английската част горе).
 
