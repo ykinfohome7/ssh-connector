@@ -74,8 +74,17 @@ async def plugin_check():
                        "launcher_call": json.loads(res.content[0].text)})
 
 
+def installer_allowed():
+    """The installer check rewrites /opt/ssh-connector, /etc/ssh-connector/servers.yaml and restarts the
+    service, so it runs only on a disposable GitHub Actions runner, never on a real server."""
+    return os.environ.get("GITHUB_ACTIONS") == "true"
+
+
 async def installer_check():
-    """Install the loopback-only systemd backend; no public tunnel or root auto-login."""
+    """Install the loopback-only systemd backend; no public tunnel or root auto-login.
+    DESTRUCTIVE: CI runners only (see installer_allowed)."""
+    if not installer_allowed():
+        raise RuntimeError("refused: destructive installer check runs only in GitHub Actions")
     import subprocess
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -127,7 +136,11 @@ async def main():
     out.append(await step("list_servers", server.list_servers()))
     out.append(await step("http mode", http_check()))
     out.append(await step("plugin launcher", plugin_check()))
-    out.append(await step("server installer (local-only)", installer_check()))
+    if installer_allowed():
+        out.append(await step("server installer (local-only)", installer_check()))
+    else:
+        print("server installer (local-only): SKIPPED - destructive, runs only in GitHub Actions",
+              file=sys.stderr)
     # Fail CI on returned errors as well as raised exceptions. Do not print raw
     # results: install logs / HTTP clients may contain credential-bearing URLs.
     problems = []
@@ -174,7 +187,7 @@ async def main():
             "Claude/Codex plugin launcher")
 
     install = results.get("server installer (local-only)", {})
-    require(isinstance(install, dict) and install.get("installer_exit") == 0
+    require(not installer_allowed() or isinstance(install, dict) and install.get("installer_exit") == 0
             and install.get("service") == "active"
             and install.get("tunnel_service") != "active"
             and install.get("local_call", {}).get("exit_code") == 0,
