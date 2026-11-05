@@ -38,7 +38,7 @@ def main():
         assert out.returncode == 0, out.stderr
         info = json.loads(out.stdout.strip().splitlines()[-1])
         assert info["v"] == version, f"installed plugin reports {info['v']}, expected {version}"
-        assert info["n"] == 56, info  # 48 + 8 read-only SNMP tools
+        assert info["n"] == 60, info  # 48 + 8 read-only SNMP + 4 read-only RDP/Windows tools
     # Изолиран инсталиран плъгин през истинския MCP stdio протокол (виж tests/test_installed_plugin.py)
     import asyncio
     sys.path.insert(0, str(ROOT / "tests"))
