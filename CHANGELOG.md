@@ -3,6 +3,14 @@
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 > _Всички по-важни промени. Най-новото е най-горе._
 
+## [Unreleased] — snippet library (Draft PR #17, not merged; active on the KSSH server)
+### Added / Добавено
+- Snippet library: 143 READ_ONLY command templates in 12 categories with EN/BG name, description, OS, privilege, typed parameters, risk level, approval flag, expected result and error handling (`plugins/ssh-connector/snippets/*.yaml`, engine `snippet_library.py`, docs `docs/SNIPPETS.md` / `docs/SNIPPETS.bg.md`, tests `tests/test_snippet_library.py`). No MCP tool added (60).
+  > _Библиотека със 143 шаблона само за четене в 12 категории, с описание на EN и BG._
+- 2026-11-05: 16 parameter-less snippets tried on pmg were added to the KSSH server's live `servers.yaml` and are run with `run_snippet` (18 snippets with `disk` and `mem`).
+### Fixed / Поправено
+- `network.vlans` returns 0 when a host has no VLAN interfaces.
+
 ## [1.4.1] — not released (Draft PR #14, not merged)
 Version 1.4.0 was never released; 1.4.1 contains all of its changes below.
 > _1.4.0 не е издавана; 1.4.1 съдържа всички промени по-долу._

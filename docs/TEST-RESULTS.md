@@ -2,6 +2,18 @@
 
 Local ≠ CI. Each entry states where it ran. Nothing below was run against a real device.
 
+## Run L7 — snippet library (CLAUDE_CODE)
+
+| Field | Value |
+|---|---|
+| Branch | `claude/kssh-snippet-library` (Draft PR #17), head `6723e65` |
+| Local (sandbox) | 7 unittest files, **196 tests OK (skipped=1)**; `tests/test_snippet_library.py` 33 OK; `tests/test_plugins.py` (stub) PASSED: 1.4.1, 60 commands |
+| Mutation check | caught: leading `-` guard, quoted-placeholder check, READ_ONLY deny-list, POSIX quoting |
+| On the KSSH server (venv) | `tests/test_snippet_library.py` 33 OK |
+| Read-only trial on pmg (23 parameter-less snippets) | 15 OK, 5 need root, 2 not applicable (`dnf`, `bridge` missing), 1 fixed (`network.vlans`) |
+| After activation (MCP, Claude Code) | 1.4.1, 60 tools, 18 snippets, 5 servers; `run_snippet` on pmg: `pmg.services`, `network.vlans`, `linux.disk_usage`, `linux.time_sync`, `pmg.clamav_db` exit 0 |
+| CI | no check run for PR #17 (base is not `main`); the new test file is not in the workflow (M6, 403) |
+
 ## Run L6 — version 1.4.1 (CLAUDE_CODE)
 
 | Field | Value |
