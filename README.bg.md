@@ -10,6 +10,10 @@
 [![Лиценз: GPL-3.0](https://img.shields.io/badge/лиценз-GPL--3.0-green)](LICENSE)
 [![Звезди](https://img.shields.io/github/stars/ykinfohome7/ssh-connector?style=social)](https://github.com/ykinfohome7/ssh-connector/stargazers)
 
+[![Инсталирай за Claude Code](https://img.shields.io/badge/Инсталирай-Claude%20Code-D97757?style=for-the-badge)](docs/INSTALL.bg.md)
+[![Инсталирай за Codex](https://img.shields.io/badge/Инсталирай-ChatGPT%20Codex-10A37F?style=for-the-badge)](docs/INSTALL.bg.md)
+[![Сподели](https://img.shields.io/badge/Сподели-с%20приятел-555?style=for-the-badge)](docs/INSTALL.bg.md#сподели-с-приятел)
+
 [English](README.md) · **Български**
 
 [Инсталиране](#-инсталиране) · [Бърз старт](#-бърз-старт) · [Команди](docs/COMMANDS.bg.md) · [Сигурност](docs/SECURITY-STANDARDS.bg.md) · [Промени](CHANGELOG.md)
@@ -35,6 +39,12 @@
 ## 📦 Инсталиране
 
 Избери начина, който ти пасва.
+
+### ⚡ С един ред (Claude Code и Codex)
+```bash
+wget -qO- https://raw.githubusercontent.com/ykinfohome7/ssh-connector/main/install.sh | sh
+```
+Опции, преглед на скрипта и споделяне: **[docs/INSTALL.bg.md](docs/INSTALL.bg.md)**.
 
 ### Claude Code — плъгин (препоръчително)
 ```bash
