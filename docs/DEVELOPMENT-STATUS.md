@@ -1,6 +1,6 @@
 # Development status — read-only monitoring
 
-Updated: 2026-11-04 ~21:45 UTC by CLAUDE_CODE. Updated again ~22:15 UTC. Connector version on this branch: **1.4.0** (not released); MCP tools: **60** (48 + 8 read-only SNMP + 4 read-only RDP/Windows), SNMP approved by the owner on 2026-11-04; RDP requested by the owner on 2026-11-05.
+Updated: 2026-11-04 ~21:45 UTC by CLAUDE_CODE. Updated again ~22:15 UTC. Connector version on this branch: **1.4.1** (not released); MCP tools: **60** (48 + 8 read-only SNMP + 4 read-only RDP/Windows), SNMP approved by the owner on 2026-11-04; RDP requested by the owner on 2026-11-05.
 
 | Area | State | Owner | Notes |
 |---|---|---|---|
@@ -17,10 +17,10 @@ Updated: 2026-11-04 ~21:45 UTC by CLAUDE_CODE. Updated again ~22:15 UTC. Connect
 | CI for monitoring tests | **BLOCKED** | owner | workflow edit refused (403); patch in `docs/CI-MONITORING-STEP.md` |
 | Proxmox VE read-only API | in progress on `codex/proxmox-readonly-api` | CODEX (Issue #13) | not touched by CLAUDE_CODE |
 | MCP tools for SNMP (8) | implemented, offline-tested | CLAUDE_CODE | `snmp_health`, `snmp_device_info`, `snmp_get`, `snmp_getnext`, `snmp_getbulk`, `snmp_walk`, `snmp_interfaces`, `snmp_interface_stats`; see `docs/SNMP.md` |
-| Installed plugin (Claude Code / Codex) | 1.4.0, isolated install test in CI | CLAUDE_CODE | `tests/test_installed_plugin.py` via `tests/test_plugins.py`; update steps in `docs/PLUGIN-AND-ENDPOINT.md` |
+| Installed plugin (Claude Code / Codex) | 1.4.1, isolated install test in CI | CLAUDE_CODE | `tests/test_installed_plugin.py` via `tests/test_plugins.py`; update steps in `docs/PLUGIN-AND-ENDPOINT.md` |
 | Connector address report (`tailscale_status`) | implemented, mock-tested | CLAUDE_CODE | stdio / HTTP, Serve / Funnel / unknown, verified or not; no real Tailscale contacted |
 | RDP / Windows checks | implemented, offline-tested (fake RDP listener) | CLAUDE_CODE | `rdp_check`, `rdp_tunnel`, `windows_health`, `rdp_sessions`; see `docs/RDP.md`; no real Windows host contacted |
-| Deployment / systemd | not started | — | requires explicit approval |
+| Deployment / systemd | **NOT DEPLOYED** | owner / CLAUDE_CODE | approved by the owner on 2026-11-05, but the development sandbox has no SSH client, no route and no credentials to the KSSH server; runbook in PR #14 report |
 
 ## Coordination with the Proxmox branch
 

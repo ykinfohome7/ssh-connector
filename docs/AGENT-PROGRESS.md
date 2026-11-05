@@ -11,6 +11,7 @@ Who did what, with links to verifiable GitHub records. Commit author names alone
 | 2026-11-04 ~21:45 | CLAUDE_CODE | snmp-mcp-tools | claude-20261104-04 | `claude/monitor-hardening-snmp` | 8 read-only SNMP MCP tools (56 total) after owner approval; vendored library + sync check; 15 new tests | commits listed in the PR #14 report |
 | 2026-11-04 ~22:15 | CLAUDE_CODE | plugin-tailscale-endpoint | claude-20261104-05 | `claude/monitor-hardening-snmp` | Plugin 1.4.0; isolated installed-plugin test; honest endpoint report in `tailscale_status`; access-log token leak fixed; 28 Tailscale tests | commits `d430dea`, `371d643`, CI [run 41922900652](https://github.com/ykinfohome7/ssh-connector/actions/runs/41922900652/job/126899678499) |
 | 2026-11-05 ~05:35 | CLAUDE_CODE | rdp-windows-tools | claude-20261105-06 | `claude/monitor-hardening-snmp` | 4 read-only RDP/Windows tools (60 total) on owner request; verified-TLS-only RDP check; 22 tests | commits listed in the PR #14 report |
+| 2026-11-05 ~06:35 | CLAUDE_CODE | kssh-1.4.1 | claude-20261105-07 | `claude/monitor-hardening-snmp` | Version 1.4.1; M6 push refused (403); deployment NOT DONE (no SSH access to the KSSH server from the sandbox) | PR #14 report |
 
 ## Other agents
 

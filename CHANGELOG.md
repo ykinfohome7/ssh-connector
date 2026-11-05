@@ -3,7 +3,11 @@
 All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 > _Всички по-важни промени. Най-новото е най-горе._
 
-## [1.4.0] — not released (Draft PR #14, not merged)
+## [1.4.1] — not released (Draft PR #14, not merged)
+Version 1.4.0 was never released; 1.4.1 contains all of its changes below.
+> _1.4.0 не е издавана; 1.4.1 съдържа всички промени по-долу._
+### Changed / Променено
+- Version 1.4.1 in `VERSION`, both `plugin.json`, README (EN/BG), `docs/PLUGIN-AND-ENDPOINT.md`. 60 MCP tools (48 existing + 8 SNMP + 4 RDP/Windows), measured in the isolated installed-plugin test.
 ### Added / Добавено
 - Four read-only RDP / Windows MCP tools (60 total): `rdp_check` (RDP negotiation, NLA enforced or not, legacy security, verified TLS certificate, latency; no login), `rdp_tunnel` (SSH tunnel on 127.0.0.1 + `.rdp` file without password), `windows_health` (fixed PowerShell over SSH), `rdp_sessions` (`quser` over SSH). Mandatory `rdp.allowed_networks`. See `docs/RDP.md`.
   > _Четири RDP / Windows команди само за четене (общо 60): проверка без вход, SSH тунел с .rdp файл, здраве на Windows, активни сесии._
