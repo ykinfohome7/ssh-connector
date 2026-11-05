@@ -1502,6 +1502,63 @@ async def snmp_interface_stats(device: str, include: str = "*", sample_seconds: 
     return await _snmp.snmp_interface_stats(device, include, sample_seconds)
 
 
+# ---------------- RDP / Windows (read-only) ----------------
+# Targets only from servers.yaml -> rdp.targets inside rdp.allowed_networks. No login, no changes:
+# RDP negotiation + verified TLS, an SSH tunnel with a .rdp file, and fixed read-only commands over SSH.
+import rdp_tools as _rdp
+
+_rdp.AUDIT = HISTORY
+
+
+async def _rdp_forward(via, host, port):
+    """Temporary local forward 127.0.0.1:<free> -> host:port through the SSH profile `via`."""
+    conn = await srv(via).get_conn()
+    listener = await conn.forward_local_port("127.0.0.1", 0, host, port)
+    return "127.0.0.1", listener.get_port(), listener.close
+
+
+async def _rdp_open_forward(server, local_port, host, port):
+    return json.loads(await port_forward(server, local_port, host, port))
+
+
+async def _rdp_ssh_run(server, command, timeout):
+    try:
+        s = srv(server)
+    except ValueError:
+        return {"error": "unknown server", "unknown_server": True}
+    try:
+        return await s.run(command, timeout)
+    except Exception as e:
+        return {"error": type(e).__name__}
+
+
+@mcp.tool()
+async def rdp_check(target: str) -> str:
+    """Read-only RDP check of a configured target: port answers RDP, NLA enforced or not, legacy RDP security
+    allowed or not, TLS certificate (verified only) and latency. No login, no credentials sent."""
+    return await _rdp.rdp_check(target, forwarder=_rdp_forward)
+
+
+@mcp.tool()
+async def rdp_tunnel(target: str, local_port: int = 0) -> str:
+    """Open a local SSH tunnel (127.0.0.1 only) to a configured RDP target through its 'via' SSH server and
+    return a ready .rdp file for your own RDP client (no password in it). Close it with stop_forward."""
+    return await _rdp.rdp_tunnel(target, _rdp_open_forward, TRANSPORT, local_port)
+
+
+@mcp.tool()
+async def windows_health(server: str) -> str:
+    """Read-only Windows health over SSH (OpenSSH on Windows): OS, last boot, disks, stopped automatic services,
+    pending reboot, RDP enabled / NLA / port / firewall rules. Runs one fixed PowerShell script."""
+    return await _rdp.windows_health(server, _rdp_ssh_run)
+
+
+@mcp.tool()
+async def rdp_sessions(server: str) -> str:
+    """Who is logged on to a Windows host (quser) over SSH: user, session, state, idle, logon time. Read-only."""
+    return await _rdp.rdp_sessions(server, _rdp_ssh_run)
+
+
 # ---------------- help: всички команди, описание (BG/EN) и шаблон ----------------
 # Всеки шаблон е готов за пускане: сменяте само своите стойности.
 HELP = {
@@ -1587,6 +1644,13 @@ HELP = {
     "snmp_interface_stats": ("Трафик, натоварване и грешки в секунда за портовете",
                              "Port traffic, utilisation and error rates",
                              {"device": "realhd-switch", "include": "*", "sample_seconds": 5}),
+    "rdp_check": ("RDP проверка без вход: порт, NLA, стара защита, TLS сертификат",
+                  "RDP check without login: port, NLA, legacy security, TLS certificate", {"target": "win-server"}),
+    "rdp_tunnel": ("SSH тунел до RDP и готов .rdp файл (без парола)", "SSH tunnel to RDP and a ready .rdp file (no password)",
+                   {"target": "win-server", "local_port": 0}),
+    "windows_health": ("Здраве на Windows през SSH: дискове, услуги, рестарт, RDP/NLA (само четене)",
+                       "Windows health over SSH: disks, services, reboot, RDP/NLA (read-only)", {"server": "WIN1"}),
+    "rdp_sessions": ("Кой е влязъл в Windows (quser)", "Who is logged on to Windows (quser)", {"server": "WIN1"}),
 }
 
 

@@ -25,9 +25,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins" / "ssh-connector"
-EXPECTED_TOOLS = 56
+EXPECTED_TOOLS = 60
 SNMP_TOOLS = {"snmp_health", "snmp_device_info", "snmp_get", "snmp_getnext", "snmp_getbulk", "snmp_walk",
               "snmp_interfaces", "snmp_interface_stats"}
+RDP_TOOLS = {"rdp_check", "rdp_tunnel", "windows_health", "rdp_sessions"}
 OLD_TOOLS = {"version_info", "list_servers", "server_test", "run_command", "run_on_many", "shell_open", "sftp_list",
              "port_forward", "start_watch", "tailscale_status", "tailscale_devices", "sudo_password",
              "codespace_status", "health_status", "help"}
@@ -82,7 +83,7 @@ snmp_tools.BACKEND_FACTORY = factory
 server.mcp.run()
 '''
 
-CONFIG = """servers: {}
+CONFIG = """servers: {{}}
 snmp:
   allowed_networks: [192.0.2.10/32]
   devices:
@@ -94,6 +95,13 @@ snmp:
       security_level: authPriv
       auth_env: KSSH_TEST_AUTH
       priv_env: KSSH_TEST_PRIV
+rdp:
+  allowed_networks: [127.0.0.1/32]
+  targets:
+    closed:
+      host: 127.0.0.1
+      port: {closed_port}
+      timeout: 1
 """
 
 
@@ -128,7 +136,12 @@ async def main():
         home = d / "home"
         (home / ".ssh-connector").mkdir(parents=True)
         cfg = home / ".ssh-connector" / "servers.yaml"
-        cfg.write_text(CONFIG)
+        import socket
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        closed_port = sock.getsockname()[1]
+        sock.close()                                                            # nothing listens there
+        cfg.write_text(CONFIG.format(closed_port=closed_port))
         bindir = d / "bin"
         bindir.mkdir()
         ts_log = d / "tailscale-calls.log"
@@ -151,7 +164,7 @@ async def main():
             assert not _lines(ts_log), "list_tools ran tailscale"
             assert len(names) == len(set(names)), "duplicate tool names"
             assert len(names) == EXPECTED_TOOLS, (len(names), sorted(names))
-            assert SNMP_TOOLS <= set(names) and OLD_TOOLS <= set(names), sorted(set(SNMP_TOOLS | OLD_TOOLS) - set(names))
+            assert SNMP_TOOLS | RDP_TOOLS | OLD_TOOLS <= set(names), sorted((SNMP_TOOLS | RDP_TOOLS | OLD_TOOLS) - set(names))
             ver = json.loads(_text(await s.call_tool("version_info", {})))
             assert len(ver["commands"]) == EXPECTED_TOOLS and set(ver["commands"]) == set(names), ver
             assert json.loads(_text(await s.call_tool("list_servers", {}))) is not None
@@ -160,6 +173,12 @@ async def main():
             health = json.loads(_text(await s.call_tool("health_status", {})))
             assert health["transport"]["mode"] == "stdio", health
             snmp = json.loads(_text(await s.call_tool("snmp_health", {"device": "sw-test"})))
+            rdp = json.loads(_text(await s.call_tool("rdp_check", {"target": "closed"})))
+            assert (rdp["status"], rdp["error_code"]) == ("DOWN", "UNREACHABLE"), rdp
+            rdp = json.loads(_text(await s.call_tool("rdp_check", {"target": "10.0.0.1"})))
+            assert (rdp["status"], rdp["error_code"]) == ("UNKNOWN", "CONFIG_ERROR"), rdp
+            win = json.loads(_text(await s.call_tool("windows_health", {"server": "nope"})))
+            assert win["error_code"] == "CONFIG_ERROR", win
             ts_before = list(_lines(ts_log))
             ts = json.loads(_text(await s.call_tool("tailscale_status", {})))
             calls = _lines(ts_log)
