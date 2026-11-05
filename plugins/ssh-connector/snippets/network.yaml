@@ -89,7 +89,7 @@ snippets:
     description: {en: "802.1Q VLAN interfaces with their ID and parent.", bg: "802.1Q VLAN интерфейси с номер и родителски интерфейс."}
     tags: [vlan]
     command: |-
-      ip -d -br link show type vlan; ip -d link show type vlan | grep -E 'vlan protocol|^[0-9]+:'
+      ip -d -br link show type vlan; ip -d link show type vlan | grep -E 'vlan protocol|^[0-9]+:' || true
     expected: {en: "Lines like 'vlan30@eno1' and 'vlan protocol 802.1Q id 30'.", bg: "Редове като 'vlan30@eno1' и 'vlan protocol 802.1Q id 30'."}
     errors: {en: "Empty = no VLAN sub-interfaces (VLAN-aware bridges are shown by network.bridge_vlans).", bg: "Празно = няма VLAN подинтерфейси (VLAN-aware мостовете са в network.bridge_vlans)."}
 
