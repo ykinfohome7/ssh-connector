@@ -2,7 +2,7 @@
 
 The tools are exercised with an in-memory fake SNMP agent; no network traffic.
 Registration in server.py is checked only when its runtime deps (mcp<2, asyncssh)
-are importable (they are in CI; tests/test_plugins.py also checks the count of 56).
+are importable (they are in CI; tests/test_plugins.py also checks the total count of 60).
 """
 import asyncio
 import importlib
@@ -253,7 +253,7 @@ class ReadOnlyAndPackagingTests(unittest.TestCase):
             bg, en, example = server.HELP[name]
             self.assertTrue(bg and en and "device" in example)
             self.assertTrue(callable(getattr(server, name)))
-        self.assertEqual(len(server.HELP), 56)
+        self.assertEqual(len(server.HELP), 60)
 
 
 if __name__ == "__main__":

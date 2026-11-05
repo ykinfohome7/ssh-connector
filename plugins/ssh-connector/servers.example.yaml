@@ -51,3 +51,16 @@ snmp:                      # read-only SNMP monitoring (snmp_* commands); no SNM
       priv_env: KSSH_SNMP_PRIV_PASS
       timeout: 2
       retries: 1
+
+rdp:                       # read-only RDP / Windows commands (rdp_check, rdp_tunnel, rdp_sessions, windows_health)
+  allowed_networks:        # required: every target host must be inside these
+    - 192.0.2.20/32
+  targets:
+    win-server:
+      host: 192.0.2.20     # documentation address - replace with your Windows host
+      port: 3389
+      via: bastion         # optional: SSH server profile (from servers:) used for rdp_check / rdp_tunnel
+      server_name: win-server.example.lan   # name expected in the TLS certificate (default: host)
+      # ca_file: ~/.ssh-connector/win-server-rdp.pem   # trust this cert/CA to verify RDP TLS
+      user: EXAMPLE\administrator           # only written into the .rdp file; no password anywhere
+      timeout: 5
