@@ -5,6 +5,8 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/), ve
 
 ## [1.4.0] — not released (Draft PR #14, not merged)
 ### Added / Добавено
+- Four read-only RDP / Windows MCP tools (60 total): `rdp_check` (RDP negotiation, NLA enforced or not, legacy security, verified TLS certificate, latency; no login), `rdp_tunnel` (SSH tunnel on 127.0.0.1 + `.rdp` file without password), `windows_health` (fixed PowerShell over SSH), `rdp_sessions` (`quser` over SSH). Mandatory `rdp.allowed_networks`. See `docs/RDP.md`.
+  > _Четири RDP / Windows команди само за четене (общо 60): проверка без вход, SSH тунел с .rdp файл, здраве на Windows, активни сесии._
 - `tailscale_status` returns an `endpoint` report: transport (`stdio` plugin / `http` backend), configured address (host only), Tailscale Serve (tailnet) vs Funnel (public) vs unknown, whether reachability was checked (`verify_reachability=true`, expects 401 without token), and safe MCP templates `https://<host>/<TOKEN>/mcp` / `Authorization: Bearer <TOKEN>`. Read-only: never runs `tailscale up/login/serve/funnel`.
   > _`tailscale_status` показва режима (stdio/HTTP, Serve/Funnel/unknown), конфигурирания адрес и дали е проверен — без токени._
 - Isolated installed-plugin test (`tests/test_installed_plugin.py`, run from `tests/test_plugins.py`): only the plugin folder, real launcher, real MCP stdio, no repository root, no `PYTHONPATH`.
@@ -18,6 +20,7 @@ All notable changes. Format: [Keep a Changelog](https://keepachangelog.com/), ve
 - SNMPv3 by default; v1/v2c and DES only with explicit per-device opt-in; secrets only via environment-variable names; backend error texts never returned.
 ### Not verified / Непроверено
 - The PySNMP backend has not been executed against any agent (dependency could not be installed in the development environment).
+- RDP / Windows tools: only a local fake RDP listener and faked Windows command output; no real Windows host contacted.
 - Tailscale endpoint report: only mock `tailscale` CLI/HTTP responses; no real tailnet, Serve, Funnel or backend was contacted. Codex plugin update steps were not executed (Codex CLI not available).
 
 ## [1.3.3] — 2026-10-28
