@@ -2,6 +2,19 @@
 
 Local ≠ CI. Each entry states where it ran. Nothing below was run against a real device.
 
+## Run L6 — version 1.4.1 (CLAUDE_CODE)
+
+| Field | Value |
+|---|---|
+| Time (UTC) | 2026-11-05T06:35Z |
+| `pip install -r requirements.txt` in a new venv | **failed**: PyPI not reachable from the development sandbox (`mcp<2` not found); not bypassed |
+| Command A (local, system Python 3.13.18) | `python3 -W error::ResourceWarning -m unittest -v tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py tests/test_plugin_snmp.py tests/test_tailscale_endpoint.py tests/test_rdp_tools.py` |
+| Result A | **Ran 163 — 162 passed, 0 failed, 1 skipped** (skipped: server registration test needs `mcp<2` + `asyncssh`) |
+| `tests/test_plugins.py` (asyncssh stub + mcp-2 shim, not committed) | PASSED: `version 1.4.1, commands 60`; isolated installed plugin: 60 unique tools |
+| `tests/test_profiles.py`, `tests/test_codespaces.py` | PASSED (with the asyncssh stub; `test_profiles.py` needs `asyncssh`) |
+| `tests/test_connect.py` | **NOT RUN locally** (needs real `asyncssh` and network); runs in CI |
+| M6 workflow step | push refused: `403 Resource not accessible by integration`; exact patch in `docs/CI-MONITORING-STEP.md` |
+
 ## Run L5 — RDP / Windows tools (CLAUDE_CODE)
 
 | Field | Value |

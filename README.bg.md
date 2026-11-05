@@ -5,7 +5,7 @@
 **Работа директно през SSH на много сървъри — от Claude и ChatGPT.**
 Команди, интерактивни терминали, SFTP, тунели, резервни адреси, събития и сигурна `sudo` парола — без посредник.
 
-[![Версия](https://img.shields.io/badge/версия-1.4.0-blue)](CHANGELOG.md)
+[![Версия](https://img.shields.io/badge/версия-1.4.1-blue)](CHANGELOG.md)
 [![Тестове](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml/badge.svg)](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml)
 [![Лиценз: GPL-3.0](https://img.shields.io/badge/лиценз-GPL--3.0-green)](LICENSE)
 [![Звезди](https://img.shields.io/github/stars/ykinfohome7/ssh-connector?style=social)](https://github.com/ykinfohome7/ssh-connector/stargazers)

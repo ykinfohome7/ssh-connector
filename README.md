@@ -5,7 +5,7 @@
 **Work directly over SSH on many servers — from Claude and ChatGPT.**
 Commands, interactive terminals, SFTP, tunnels, failover, events and a safe `sudo` password — no gateway in between.
 
-[![Version](https://img.shields.io/badge/version-1.4.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.4.1-blue)](CHANGELOG.md)
 [![Tests](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml/badge.svg)](https://github.com/ykinfohome7/ssh-connector/actions/workflows/test.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/ykinfohome7/ssh-connector?style=social)](https://github.com/ykinfohome7/ssh-connector/stargazers)
