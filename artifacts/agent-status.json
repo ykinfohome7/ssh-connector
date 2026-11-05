@@ -1,11 +1,11 @@
 {
   "schema": "kssh-agent-status/1",
-  "updated_utc": "2026-11-04T22:15:00Z",
+  "updated_utc": "2026-11-05T05:35:00Z",
   "agents": [
     {
       "agent_id": "CLAUDE_CODE",
-      "task_id": "plugin-tailscale-endpoint",
-      "run_id": "claude-20261104-05",
+      "task_id": "rdp-windows-tools",
+      "run_id": "claude-20261105-06",
       "branch": "claude/monitor-hardening-snmp",
       "issues": [
         11,
@@ -16,12 +16,12 @@
         14
       ],
       "state": "in_review",
-      "current_task": "Plugin 1.4.0 with SNMP tools installable; honest connector endpoint report (stdio / Serve / Funnel)",
+      "current_task": "4 read-only RDP / Windows MCP tools (60 total)",
       "results": {
         "local_tests": {
-          "command": "python3 -W error::ResourceWarning -m unittest tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py tests/test_plugin_snmp.py tests/test_tailscale_endpoint.py",
+          "command": "python3 -W error::ResourceWarning -m unittest tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py tests/test_plugin_snmp.py tests/test_tailscale_endpoint.py tests/test_rdp_tools.py",
           "python": "3.13.18",
-          "ran": 141,
+          "ran": 163,
           "failed": 0,
           "skipped": 1,
           "skipped_reason": "server.py import needs mcp<2 + asyncssh (not installable locally)"
@@ -38,7 +38,7 @@
           "covers_installed_plugin_test": true
         },
         "mcp_tools": {
-          "total": 56,
+          "total": 60,
           "added": [
             "snmp_health",
             "snmp_device_info",
@@ -47,19 +47,27 @@
             "snmp_getbulk",
             "snmp_walk",
             "snmp_interfaces",
-            "snmp_interface_stats"
+            "snmp_interface_stats",
+            "rdp_check",
+            "rdp_tunnel",
+            "windows_health",
+            "rdp_sessions"
           ],
-          "verified_in_ci": true
+          "verified_in_ci": "pending"
         },
         "plugin": {
           "version": "1.4.0",
           "installed_plugin_test": "tests/test_installed_plugin.py (via tests/test_plugins.py)",
-          "tools_measured": 56,
+          "tools_measured": 60,
           "duplicates": 0
         },
         "tailscale_endpoint": {
           "tests": 28,
           "real_tailscale_contacted": false
+        },
+        "rdp": {
+          "tests": 22,
+          "real_windows_contacted": false
         }
       },
       "blocked": [
@@ -81,6 +89,10 @@
           "item": "Real Tailscale Serve/Funnel and HTTP backend reachability",
           "status": "PENDING_EXPLICIT_APPROVAL",
           "reason": "separate deployment stage"
+        },
+        {
+          "item": "Real Windows / RDP host tests",
+          "status": "PENDING_EXPLICIT_APPROVAL"
         }
       ],
       "history": [
@@ -116,6 +128,10 @@
           "utc": "2026-11-04T22:15Z",
           "action": "plugin 1.4.0 + endpoint report",
           "commit": "371d6432376e014273844dee49bb21eaee142c42"
+        },
+        {
+          "utc": "2026-11-05T05:35Z",
+          "action": "RDP / Windows tools (owner request)"
         }
       ]
     },

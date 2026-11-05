@@ -2,6 +2,21 @@
 
 Local ≠ CI. Each entry states where it ran. Nothing below was run against a real device.
 
+## Run L5 — RDP / Windows tools (CLAUDE_CODE)
+
+| Field | Value |
+|---|---|
+| Time (UTC) | 2026-11-05T05:35Z |
+| Command A (local, stdlib + PyYAML + openssl CLI) | `python3 -W error::ResourceWarning -m unittest tests/test_monitoring_mvp.py tests/test_monitoring_snmp.py tests/test_monitoring_engine.py tests/test_plugin_snmp.py tests/test_tailscale_endpoint.py tests/test_rdp_tools.py` |
+| Result A | **Ran 163 — OK (skipped=1)**; `tests/test_rdp_tools.py` alone: 22 OK |
+| Command B (local, asyncssh stub + mcp-2 shim, not committed) | `tests/test_plugins.py` (+ isolated installed-plugin test) and the old mock tests |
+| Result B | all PASSED; `plugin tests PASSED (version 1.4.0, commands 60)`; installed plugin: 60 unique tools; `rdp_check` on a closed port → `DOWN/UNREACHABLE`, unknown target → `UNKNOWN/CONFIG_ERROR`, `windows_health` on unknown profile → `CONFIG_ERROR` |
+| CI | see PR #14 report for the run on the final SHA |
+
+`tests/test_rdp_tools.py` (22): request bytes; response parsing (selected / failure / no negotiation / not RDP); NLA required, NLA optional + legacy accepted; not RDP (HTTP answer); timeout; closed port; unknown target; TLS with untrusted cert reported (no data from unverified handshake); TLS verified with pinned `ca_file` + expiry warning; check through `via` forwarder (closed afterwards); audit entry; config validation (9 invalid cases) and example configs; tunnel + `.rdp` file (no password), remote-backend note, errors without leaked text; fixed read-only PowerShell; health parsing + warnings; not Windows / timeout / garbage / unknown profile; `quser` parsing incl. disconnected session; source has no `CERT_NONE` / disabled hostname check.
+
+Not executed: any real Windows host, RDP server or OpenSSH on Windows.
+
 ## Run L4 — plugin 1.4.0 + Tailscale endpoint (CLAUDE_CODE)
 
 | Field | Value |

@@ -58,6 +58,16 @@
 
 Not changed: `tailscale_devices` error text is not redacted (pre-existing; it contains only `tailscale status` output).
 
+## Round 5 — RDP / Windows tools
+
+| ID | Severity | Risk | Status | Control |
+|---|---|---|---|---|
+| R5-1 | HIGH | RDP check could be used to scan arbitrary hosts | MITIGATED | configured target names only; mandatory `rdp.allowed_networks`; raw addresses refused |
+| R5-2 | HIGH | Temptation to accept self-signed RDP certificates by turning verification off | AVOIDED | only verified TLS (`create_default_context`, hostname check on); untrusted cert is reported, never bypassed; `ca_file` pins a trusted cert |
+| R5-3 | MEDIUM | Credential exposure | MITIGATED | no login, no credentials sent; `.rdp` file never contains a password (`prompt for credentials:i:1`) |
+| R5-4 | MEDIUM | Command injection into PowerShell / cmd | MITIGATED | one fixed script via `-EncodedCommand`; `quser` fixed; no user input in commands; test asserts no `Set-/New-/Remove-/Stop-/Start-/Invoke-` |
+| R5-5 | LOW | Tunnel exposed to the network | MITIGATED | `127.0.0.1` only; ports < 1024 refused; remote-backend case is stated in the result |
+
 ## Controls in place
 
 * Mandatory allowlist (`allowed_networks`) at config load and in `SnmpClient`; alternate IP spellings do not bypass it (tested).
