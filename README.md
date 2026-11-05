@@ -10,6 +10,10 @@ Commands, interactive terminals, SFTP, tunnels, failover, events and a safe `sud
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/ykinfohome7/ssh-connector?style=social)](https://github.com/ykinfohome7/ssh-connector/stargazers)
 
+[![Install for Claude Code](https://img.shields.io/badge/Install-Claude%20Code-D97757?style=for-the-badge)](docs/INSTALL.md)
+[![Install for Codex](https://img.shields.io/badge/Install-ChatGPT%20Codex-10A37F?style=for-the-badge)](docs/INSTALL.md)
+[![Share](https://img.shields.io/badge/Share-with%20a%20friend-555?style=for-the-badge)](docs/INSTALL.md#share-with-a-friend)
+
 **English** · [Български](README.bg.md)
 
 [Install](#-install) · [Quick start](#-quick-start) · [Commands](docs/COMMANDS.md) · [Security](docs/SECURITY-STANDARDS.md) · [Changelog](CHANGELOG.md)
@@ -36,6 +40,12 @@ Commands, interactive terminals, SFTP, tunnels, failover, events and a safe `sud
 ## 📦 Install
 
 Pick the way that fits you.
+
+### ⚡ One line (Claude Code and Codex)
+```bash
+wget -qO- https://raw.githubusercontent.com/ykinfohome7/ssh-connector/main/install.sh | sh
+```
+Options, reviewing the script first, and sharing: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 ### Claude Code — plugin (recommended)
 ```bash

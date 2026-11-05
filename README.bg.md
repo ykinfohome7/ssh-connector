@@ -10,6 +10,10 @@
 [![Лиценз: GPL-3.0](https://img.shields.io/badge/лиценз-GPL--3.0-green)](LICENSE)
 [![Звезди](https://img.shields.io/github/stars/ykinfohome7/ssh-connector?style=social)](https://github.com/ykinfohome7/ssh-connector/stargazers)
 
+[![Инсталирай за Claude Code](https://img.shields.io/badge/Инсталирай-Claude%20Code-D97757?style=for-the-badge)](docs/INSTALL.bg.md)
+[![Инсталирай за Codex](https://img.shields.io/badge/Инсталирай-ChatGPT%20Codex-10A37F?style=for-the-badge)](docs/INSTALL.bg.md)
+[![Сподели](https://img.shields.io/badge/Сподели-с%20приятел-555?style=for-the-badge)](docs/INSTALL.bg.md#сподели-с-приятел)
+
 [English](README.md) · **Български**
 
 [Инсталиране](#-инсталиране) · [Бърз старт](#-бърз-старт) · [Команди](docs/COMMANDS.bg.md) · [Сигурност](docs/SECURITY-STANDARDS.bg.md) · [Промени](CHANGELOG.md)
@@ -35,6 +39,12 @@
 ## 📦 Инсталиране
 
 Избери начина, който ти пасва.
+
+### ⚡ С един ред (Claude Code и Codex)
+```bash
+wget -qO- https://raw.githubusercontent.com/ykinfohome7/ssh-connector/main/install.sh | sh
+```
+Опции, преглед на скрипта и споделяне: **[docs/INSTALL.bg.md](docs/INSTALL.bg.md)**.
 
 ### Claude Code — плъгин (препоръчително)
 ```bash
@@ -82,20 +92,20 @@ codex  mcp add ssh -- sh $(pwd)/plugins/ssh-connector/bin/run.sh     # Codex
 
 Пълен списък с параметри и примери: **[docs/COMMANDS.bg.md](docs/COMMANDS.bg.md)**.
 
-## 🧰 GitHub Codespaces (ново във v1.3.3)
+## 🧰 GitHub Codespaces (ново въv1.3.3)
 
 Три нови MCP инструмента: `codespace_status(name="")` показва всички достъпни Codespaces или един по име; `codespace_start(name)` стартира съществуващ Codespace; `codespace_stop(name, confirm=true)` спира само след изрично потвърждение. Използват `gh` и официалния GitHub REST API, с права `codespace` или Codespaces lifecycle admin. Не изпращат GitHub токени като параметри.
 
 **Важно:** ако MCP конекторът работи само вътре в спрян Codespace, не може сам да го събуди. За събуждане е нужен независим работещ конектор или GitHub.
 
-## 🔑 sudo парола (ново във 1.3.3)
+## 🔑 sudo парола (ново во 1.3.3)
 
 Когато команда иска `sudo`, конекторът не виси — пита те да избереш:
 
 | Режим | Какво става |
 |---|---|
 | `prompt` | Получаваш **еднократна HTTPS връзка** (2 мин). Пишеш паролата там; проверява се на сървъра |
-| `profile` | Взима предварително зададена стойност от променлива на средата / GitHub Secret. Пази се само **името** ѝ |
+| `profile` | Взима предварително зададена стойност от променлива на средата / GitHub Secret. Пази се само **името** ё |
 | `generate` | Случайна парола — **ти избираш** дължина (16–128) и символи. Показва се веднъж; задава се на сървъра едва след „Записах я“ |
 
 Паролата никога не е в чата, в командата, в логовете или в историята. Стига до `sudo` през stdin.
