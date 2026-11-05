@@ -1,0 +1,5 @@
+# Optional: only needed for real SNMP probes. The monitoring tests do not need it.
+# NOT yet validated against a real agent (PyPI blocked in the development environment).
+pysnmp>=7.1,<8
+# DES/AES privacy in pysnmp may need a crypto backend; confirm on a lab host before use:
+# pycryptodomex

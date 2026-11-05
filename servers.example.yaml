@@ -34,3 +34,33 @@ snippets:                  # saved commands, run with run_snippet
   top: ps aux --sort=-%cpu | head -15
   update_debian: apt-get update && apt-get -y upgrade
   update_redhat: dnf -y upgrade
+
+snmp:                      # read-only SNMP monitoring (snmp_* commands); no SNMP SET exists
+  allowed_networks:        # required: every device host must be inside these
+    - 192.0.2.10/32
+  devices:
+    realhd-switch:
+      host: 192.0.2.10     # documentation address - replace with your switch
+      adapter: realhd      # generic | realhd | cisco | unifi
+      version: "3"         # "1"/"2c" only with allow_legacy_snmp: true and community_env
+      user: monitor
+      security_level: authPriv
+      auth_protocol: SHA   # SHA, SHA224, SHA256, SHA384, SHA512
+      priv_protocol: AES   # AES, AES192, AES256; DES only with allow_legacy_des: true
+      auth_env: KSSH_SNMP_AUTH_PASS   # NAME of an environment variable, never the password
+      priv_env: KSSH_SNMP_PRIV_PASS
+      timeout: 2
+      retries: 1
+
+rdp:                       # read-only RDP / Windows commands (rdp_check, rdp_tunnel, rdp_sessions, windows_health)
+  allowed_networks:        # required: every target host must be inside these
+    - 192.0.2.20/32
+  targets:
+    win-server:
+      host: 192.0.2.20     # documentation address - replace with your Windows host
+      port: 3389
+      via: bastion         # optional: SSH server profile (from servers:) used for rdp_check / rdp_tunnel
+      server_name: win-server.example.lan   # name expected in the TLS certificate (default: host)
+      # ca_file: ~/.ssh-connector/win-server-rdp.pem   # trust this cert/CA to verify RDP TLS
+      user: EXAMPLE\administrator           # only written into the .rdp file; no password anywhere
+      timeout: 5

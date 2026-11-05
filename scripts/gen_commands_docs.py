@@ -33,6 +33,11 @@ GROUPS = [
      ["sftp_list", "sftp_read", "sftp_write", "sftp_upload", "sftp_download", "sftp_manage"]),
     ("Port forwarding", "Тунели към портове", ["port_forward", "list_forwards", "stop_forward"]),
     ("Event watching", "Наблюдение на събития", ["start_watch", "stop_watch", "get_events"]),
+    ("SNMP monitoring (read-only)", "SNMP наблюдение (само четене)",
+     ["snmp_health", "snmp_device_info", "snmp_get", "snmp_getnext", "snmp_getbulk", "snmp_walk",
+      "snmp_interfaces", "snmp_interface_stats"]),
+    ("RDP / Windows (read-only)", "RDP / Windows (само четене)",
+     ["rdp_check", "rdp_tunnel", "windows_health", "rdp_sessions"]),
 ]
 # Команди, които променят достъп или трият — маркираме ги в документите
 CONFIRM = {"server_remove", "credentials_rotate", "tailscale_key_create", "tailscale_key_revoke", "codespace_stop"}

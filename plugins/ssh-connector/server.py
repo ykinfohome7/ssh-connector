@@ -28,6 +28,8 @@ import asyncssh
 import yaml
 from mcp.server.fastmcp import FastMCP
 
+import endpoint_info  # read-only endpoint/Tailscale report (no side effects on import)
+
 CONFIG_PATH = os.environ.get("SSH_CONNECTOR_CONFIG", str(Path(__file__).with_name("servers.yaml")))
 
 
@@ -46,6 +48,7 @@ def _read_version():
 
 
 APP_VERSION = _read_version()
+TRANSPORT = {"mode": "stdio", "note": "local plugin over stdio; no public address needed"}
 mcp = FastMCP("ssh-connector")
 try:  # allow access through a tunnel / reverse proxy (Host header is the public domain); auth is enforced below
     from mcp.server.transport_security import TransportSecuritySettings
@@ -894,10 +897,15 @@ TS_API = "https://api.tailscale.com/api/v2"
 
 
 async def _ts_cli(*args):
-    """Пуска `tailscale ...` локално и връща (код, изход)."""
+    """Пуска `tailscale ...` локално (само четене) и връща (код, изход). При timeout процесът се спира."""
     proc = await asyncio.create_subprocess_exec("tailscale", *args, stdout=asyncio.subprocess.PIPE,
                                                 stderr=asyncio.subprocess.PIPE)
-    out, err = await asyncio.wait_for(proc.communicate(), timeout=20)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=20)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise
     return proc.returncode, (out or err).decode(errors="replace")
 
 
@@ -919,24 +927,33 @@ async def _ts_api(method, path, body=None):
 
 
 @mcp.tool()
-async def tailscale_status() -> str:
-    """Tailscale on the connector host: version, this device (name, IPs, online), the account it is logged in with, Funnel."""
+async def tailscale_status(verify_reachability: bool = False) -> str:
+    """Tailscale on the connector host (version, device, account) plus an honest endpoint report:
+    transport (stdio plugin / HTTP backend), configured address, Serve (tailnet) vs Funnel (public) vs unknown,
+    whether reachability was checked, and safe MCP endpoint templates (never a token).
+    verify_reachability=true sends one GET without credentials to the configured address (expects 401).
+    Read-only: never runs tailscale up/login/serve/funnel."""
+    endpoint = await endpoint_info.collect(TRANSPORT, lambda *a: _ts_cli(*a), verify=bool(verify_reachability))
     try:
         code, ver = await _ts_cli("version")
         code2, st = await _ts_cli("status", "--json")
         if code2 != 0:
-            raise RuntimeError("tailscale is not running here: " + st.strip()[:200])
+            raise RuntimeError("tailscale is not running here: " + endpoint_info.redact(st.strip()[:200]))
         j = json.loads(st)
         me = j.get("Self") or {}
         user = (j.get("User") or {}).get(str(me.get("UserID")), {})
-        _, funnel = await _ts_cli("funnel", "status")
         return json.dumps({"version": ver.splitlines()[0] if ver else None, "backend_state": j.get("BackendState"),
                            "device": me.get("HostName"), "dns_name": (me.get("DNSName") or "").rstrip("."),
                            "ips": me.get("TailscaleIPs"), "online": me.get("Online"),
                            "account": user.get("LoginName"), "tailnet": (j.get("CurrentTailnet") or {}).get("Name"),
-                           "funnel_on": "Funnel on" in funnel}, indent=2)
+                           "funnel_on": endpoint["exposure"]["mode"] == "funnel",
+                           "endpoint": endpoint}, indent=2)
+    except FileNotFoundError:
+        return json.dumps({"error": "tailscale is not installed on the connector host", "endpoint": endpoint},
+                          indent=2)
     except Exception as e:
-        return _err(e)
+        return json.dumps({"error": endpoint_info.redact(f"{type(e).__name__}: {e}"), "endpoint": endpoint},
+                          indent=2)
 
 
 @mcp.tool()
@@ -1038,7 +1055,8 @@ async def health_status() -> str:
     except Exception as e:
         cfg_ok, cfg_error = False, f"{type(e).__name__}: {e}"
     return json.dumps({
-        "version": APP_VERSION, "commit": _git_sha(), "config_ok": cfg_ok, "config_error": cfg_error,
+        "version": APP_VERSION, "commit": _git_sha(), "transport": TRANSPORT,
+        "config_ok": cfg_ok, "config_error": cfg_error,
         "servers": {n: {"connected": s._alive(), "active_host": s.active_host, "last_error": s.last_error,
                         "key_age_days": _key_age_days(s.cfg),
                         "key_rotation_due": (_key_age_days(s.cfg) or 0) >= ROTATE_MAX_DAYS}
@@ -1425,6 +1443,122 @@ async def codespace_stop(name: str, confirm: bool = False) -> str:
     return await _codespaces.stop(name, confirm)
 
 
+# ---------------- SNMP (read-only monitoring) ----------------
+# Only configured device names from servers.yaml -> snmp.devices, all hosts inside
+# snmp.allowed_networks. GET / GETNEXT / GETBULK / bounded WALK only; no SNMP SET exists.
+import snmp_tools as _snmp
+
+_snmp.AUDIT = HISTORY
+
+
+@mcp.tool()
+async def snmp_health(device: str) -> str:
+    """Read-only SNMP liveness of a configured device: authenticated GET of sysUpTime and sysName."""
+    return await _snmp.snmp_health(device)
+
+
+@mcp.tool()
+async def snmp_device_info(device: str) -> str:
+    """Read-only device facts: sysDescr/sysName/uptime, model and firmware (ENTITY-MIB), temperature/fans/power
+    (ENTITY-SENSOR-MIB). Anything the device does not report is UNAVAILABLE, never estimated."""
+    return await _snmp.snmp_device_info(device)
+
+
+@mcp.tool()
+async def snmp_get(device: str, oids: list[str]) -> str:
+    """SNMP GET of numeric OIDs (max 32) on a configured device. Read-only."""
+    return await _snmp.snmp_get(device, oids)
+
+
+@mcp.tool()
+async def snmp_getnext(device: str, oids: list[str]) -> str:
+    """SNMP GETNEXT of numeric OIDs (max 32) on a configured device. Read-only."""
+    return await _snmp.snmp_getnext(device, oids)
+
+
+@mcp.tool()
+async def snmp_getbulk(device: str, oids: list[str], max_repetitions: int = 10) -> str:
+    """SNMP GETBULK (v2c/v3) with max_repetitions capped at 25. Read-only."""
+    return await _snmp.snmp_getbulk(device, oids, max_repetitions)
+
+
+@mcp.tool()
+async def snmp_walk(device: str, oid: str, max_results: int = 500) -> str:
+    """Bounded SNMP WALK of one subtree (max 2000 results, 20 s); reports truncated=true when a limit hit. Read-only."""
+    return await _snmp.snmp_walk(device, oid, max_results)
+
+
+@mcp.tool()
+async def snmp_interfaces(device: str, include: str = "*") -> str:
+    """Interface inventory and status (IF-MIB/IF-X-MIB): name, alias, admin/oper status, speed, error counters.
+    include is a glob on the interface name, e.g. "Te*"."""
+    return await _snmp.snmp_interfaces(device, include)
+
+
+@mcp.tool()
+async def snmp_interface_stats(device: str, include: str = "*", sample_seconds: int = 5) -> str:
+    """Traffic, utilisation and error rates from two samples sample_seconds apart (1-30). Uses 64-bit counters;
+    handles rollover, reboot and ifIndex changes by reporting no rate instead of a wrong one."""
+    return await _snmp.snmp_interface_stats(device, include, sample_seconds)
+
+
+# ---------------- RDP / Windows (read-only) ----------------
+# Targets only from servers.yaml -> rdp.targets inside rdp.allowed_networks. No login, no changes:
+# RDP negotiation + verified TLS, an SSH tunnel with a .rdp file, and fixed read-only commands over SSH.
+import rdp_tools as _rdp
+
+_rdp.AUDIT = HISTORY
+
+
+async def _rdp_forward(via, host, port):
+    """Temporary local forward 127.0.0.1:<free> -> host:port through the SSH profile `via`."""
+    conn = await srv(via).get_conn()
+    listener = await conn.forward_local_port("127.0.0.1", 0, host, port)
+    return "127.0.0.1", listener.get_port(), listener.close
+
+
+async def _rdp_open_forward(server, local_port, host, port):
+    return json.loads(await port_forward(server, local_port, host, port))
+
+
+async def _rdp_ssh_run(server, command, timeout):
+    try:
+        s = srv(server)
+    except ValueError:
+        return {"error": "unknown server", "unknown_server": True}
+    try:
+        return await s.run(command, timeout)
+    except Exception as e:
+        return {"error": type(e).__name__}
+
+
+@mcp.tool()
+async def rdp_check(target: str) -> str:
+    """Read-only RDP check of a configured target: port answers RDP, NLA enforced or not, legacy RDP security
+    allowed or not, TLS certificate (verified only) and latency. No login, no credentials sent."""
+    return await _rdp.rdp_check(target, forwarder=_rdp_forward)
+
+
+@mcp.tool()
+async def rdp_tunnel(target: str, local_port: int = 0) -> str:
+    """Open a local SSH tunnel (127.0.0.1 only) to a configured RDP target through its 'via' SSH server and
+    return a ready .rdp file for your own RDP client (no password in it). Close it with stop_forward."""
+    return await _rdp.rdp_tunnel(target, _rdp_open_forward, TRANSPORT, local_port)
+
+
+@mcp.tool()
+async def windows_health(server: str) -> str:
+    """Read-only Windows health over SSH (OpenSSH on Windows): OS, last boot, disks, stopped automatic services,
+    pending reboot, RDP enabled / NLA / port / firewall rules. Runs one fixed PowerShell script."""
+    return await _rdp.windows_health(server, _rdp_ssh_run)
+
+
+@mcp.tool()
+async def rdp_sessions(server: str) -> str:
+    """Who is logged on to a Windows host (quser) over SSH: user, session, state, idle, logon time. Read-only."""
+    return await _rdp.rdp_sessions(server, _rdp_ssh_run)
+
+
 # ---------------- help: всички команди, описание (BG/EN) и шаблон ----------------
 # Всеки шаблон е готов за пускане: сменяте само своите стойности.
 HELP = {
@@ -1453,7 +1587,9 @@ HELP = {
                        "password_env": ""}),
     "session_configure": ("Таймаути, опити, keepalive, паралелни сесии", "Timeouts, retries, keepalive, parallel sessions",
                           {"server": "BGDB", "connect_timeout": 10, "retries": 3, "command_timeout": 300}),
-    "tailscale_status": ("Tailscale: версия, устройство, акаунт, Funnel", "Tailscale: version, device, account, Funnel", {}),
+    "tailscale_status": ("Tailscale и адрес на конектора: stdio/HTTP, Serve (tailnet) или Funnel (публичен), проверен ли е, MCP шаблон без токен",
+                         "Tailscale and connector address: stdio/HTTP, Serve (tailnet) or Funnel (public), verified or not, MCP template without token",
+                         {"verify_reachability": False}),
     "tailscale_devices": ("Устройства в Tailscale мрежата", "Devices in the tailnet", {"online_only": False}),
     "tailscale_keys": ("Списък с auth ключове (без стойностите)", "List auth keys (no values)", {}),
     "tailscale_key_create": ("Нов auth ключ (само с потвърждение)", "New auth key (confirm required)",
@@ -1491,6 +1627,30 @@ HELP = {
     "start_watch": ("Следи грешки, сривове, влизания", "Watch errors, crashes, logins", {"server": "BGDB"}),
     "stop_watch": ("Спира следенето", "Stop watching", {"server": "BGDB"}),
     "get_events": ("Събрани събития", "Collected events", {"server": "", "limit": 50}),
+    "snmp_health": ("SNMP проверка на устройство (само четене)", "SNMP liveness of a device (read-only)",
+                    {"device": "realhd-switch"}),
+    "snmp_device_info": ("Модел, firmware, uptime, температура ако е налична (само четене)",
+                         "Model, firmware, uptime, temperature if available (read-only)", {"device": "realhd-switch"}),
+    "snmp_get": ("SNMP GET по OID (само четене)", "SNMP GET by OID (read-only)",
+                 {"device": "realhd-switch", "oids": ["1.3.6.1.2.1.1.5.0"]}),
+    "snmp_getnext": ("SNMP GETNEXT по OID (само четене)", "SNMP GETNEXT by OID (read-only)",
+                     {"device": "realhd-switch", "oids": ["1.3.6.1.2.1.1"]}),
+    "snmp_getbulk": ("SNMP GETBULK (само четене)", "SNMP GETBULK (read-only)",
+                     {"device": "realhd-switch", "oids": ["1.3.6.1.2.1.2.2.1.2"], "max_repetitions": 10}),
+    "snmp_walk": ("Ограничен SNMP WALK на клон (само четене)", "Bounded SNMP WALK of a subtree (read-only)",
+                  {"device": "realhd-switch", "oid": "1.3.6.1.2.1.2.2.1.2", "max_results": 500}),
+    "snmp_interfaces": ("Портове: състояние, скорост, грешки", "Ports: status, speed, errors",
+                        {"device": "realhd-switch", "include": "*"}),
+    "snmp_interface_stats": ("Трафик, натоварване и грешки в секунда за портовете",
+                             "Port traffic, utilisation and error rates",
+                             {"device": "realhd-switch", "include": "*", "sample_seconds": 5}),
+    "rdp_check": ("RDP проверка без вход: порт, NLA, стара защита, TLS сертификат",
+                  "RDP check without login: port, NLA, legacy security, TLS certificate", {"target": "win-server"}),
+    "rdp_tunnel": ("SSH тунел до RDP и готов .rdp файл (без парола)", "SSH tunnel to RDP and a ready .rdp file (no password)",
+                   {"target": "win-server", "local_port": 0}),
+    "windows_health": ("Здраве на Windows през SSH: дискове, услуги, рестарт, RDP/NLA (само четене)",
+                       "Windows health over SSH: disks, services, reboot, RDP/NLA (read-only)", {"server": "WIN1"}),
+    "rdp_sessions": ("Кой е влязъл в Windows (quser)", "Who is logged on to Windows (quser)", {"server": "WIN1"}),
 }
 
 
@@ -1594,6 +1754,11 @@ if __name__ == "__main__":
             raise SystemExit("Set SSH_CONNECTOR_TOKEN to a random secret of at least 24 characters "
                              "(e.g. python3 -c 'import secrets;print(secrets.token_urlsafe(32))')")
         import uvicorn
-        uvicorn.run(http_app(token), host=a.host, port=a.port)
+        TRANSPORT.clear()
+        TRANSPORT.update({"mode": "http", "host": a.host, "port": a.port,
+                          "note": "MCP over streamable HTTP; reachable from outside only through "
+                                  "Tailscale Serve/Funnel or another proxy"})
+        # access_log=False: uvicorn's access log would print the secret-path URL (/<token>/mcp) in full.
+        uvicorn.run(http_app(token), host=a.host, port=a.port, access_log=False)
     else:
         mcp.run()

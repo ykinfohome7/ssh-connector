@@ -45,10 +45,16 @@ async def main():
                 return 0, "1.104.2\n  tailscale commit: x\n"
             if args[0] == "status":
                 return 0, json.dumps(STATUS)
-            return 0, "# Funnel on:\n#     - https://ssh-connector.tail0000.ts.net\n"
+            if args[:2] == ("serve", "status"):
+                return 0, json.dumps({"Web": {"ssh-connector.tail0000.ts.net:443": {}},
+                                      "AllowFunnel": {"ssh-connector.tail0000.ts.net:443": True}})
+            raise AssertionError(f"unexpected tailscale call {args}")          # само четене
         server._ts_cli = fake_cli
         st = json.loads(await server.tailscale_status())
         assert st["version"] == "1.104.2" and st["account"] == "owner@example.com" and st["funnel_on"], st
+        ep = st["endpoint"]
+        assert ep["exposure"]["mode"] == "funnel" and ep["exposure"]["public_internet"] == "configured_not_verified", ep
+        assert ep["transport"]["mode"] == "stdio" and not ep["reachability"]["verified"], ep
         devs = json.loads(await server.tailscale_devices())
         assert [d["name"] for d in devs][:1] == ["bgdb"] and len(devs) == 3, devs
         assert len(json.loads(await server.tailscale_devices(online_only=True))) == 2
